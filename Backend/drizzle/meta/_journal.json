@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1792145665832,
+      "tag": "0000_melodic_scream",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1792147921621,
+      "tag": "0001_elite_magma",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792687451799,
+      "tag": "0002_glamorous_flatman",
+      "breakpoints": true
+    }
+  ]
+}

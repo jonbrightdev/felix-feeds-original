@@ -1,0 +1,5 @@
+// Copy to Local.xcconfig. Keep local signing and endpoint details untracked.
+// Simulator builds need neither value.
+// DEVELOPMENT_TEAM = YOUR_TEAM_ID
+// xcconfig treats // as a comment; $() preserves the HTTPS URL.
+FELIX_SYNC_ORIGIN = https:/$()/sync.example.invalid
