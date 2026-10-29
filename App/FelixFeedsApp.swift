@@ -523,7 +523,7 @@ struct FeedEditor: View {
     @State private var startTimeShortcut: (minutesAgo: Int, date: Date)?
     @State private var ended: Date
     @State private var breastStarted: Date
-    @State private var breastEnded: Date
+    @State private var breastTimeShortcut: (minutesAgo: Int, date: Date)?
     @State private var nursingMinutes: String
     @State private var estimate: String
     @State private var amount: String
@@ -549,7 +549,6 @@ struct FeedEditor: View {
         _started = State(initialValue: feed?.startedAt ?? (defaultKind == .breast ? now.addingTimeInterval(-15 * 60) : now))
         _ended = State(initialValue: feed?.endedAt ?? now)
         _breastStarted = State(initialValue: feed?.startedAt ?? now.addingTimeInterval(-15 * 60))
-        _breastEnded = State(initialValue: feed?.endedAt ?? now)
         _nursingMinutes = State(initialValue: feed.map { Self.formattedMinutes($0.duration) } ?? "")
         _estimate = State(initialValue: feed?.estimatedMillilitres.map(String.init) ?? "")
         _amount = State(initialValue: feed?.millilitres.map(String.init) ?? "")
@@ -658,8 +657,11 @@ struct FeedEditor: View {
         Section {
             DatePicker("Started", selection: sessionKind == .breast ? $breastStarted : $started, in: ...Date.now)
                 .accessibilityIdentifier("feed-started")
-            if sessionKind == .breast || feed != nil {
-                DatePicker("Ended", selection: sessionKind == .breast ? $breastEnded : $ended, in: ...Date.now)
+            if sessionKind == .breast {
+                timeShortcuts(start: $breastStarted, shortcut: $breastTimeShortcut,
+                    options: [5, 10, 15, 20], prefix: "breast")
+            } else if feed != nil {
+                DatePicker("Ended", selection: $ended, in: ...Date.now)
                     .accessibilityIdentifier("feed-ended")
             }
         } header: { Text(L10n.text(sessionKind == .breast ? "Feed details" : "Bottle details")) }
@@ -674,7 +676,12 @@ struct FeedEditor: View {
             }
         } else {
             bottleVolumeSection
-            Section { bottleTimeShortcuts }
+            Section {
+                timeShortcuts(start: $started, shortcut: $startTimeShortcut,
+                    options: [0, 5, 15, 30, 60], prefix: "bottle") { time in
+                        if ended < time { ended = time }
+                    }
+            }
         }
     }
 
@@ -728,19 +735,20 @@ struct FeedEditor: View {
             }.padding(.vertical, 8)
         }.listRowBackground(Palette.sage)
     }
-    private var bottleTimeShortcuts: some View {
+    private func timeShortcuts(start: Binding<Date>, shortcut: Binding<(minutesAgo: Int, date: Date)?>,
+                               options: [Int], prefix: String, onSelect: @escaping (Date) -> Void = { _ in }) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Set start time").font(.subheadline).foregroundStyle(Palette.secondary)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], spacing: 8) {
-                ForEach([0, 5, 15, 30, 60], id: \.self) { minutesAgo in
+                ForEach(options, id: \.self) { minutesAgo in
                     // Keep the chosen shortcut highlighted as time passes; a manual
                     // start-time change stops matching the shortcut's exact timestamp.
-                    let selected = startTimeShortcut?.minutesAgo == minutesAgo && startTimeShortcut?.date == started
+                    let selected = shortcut.wrappedValue?.minutesAgo == minutesAgo && shortcut.wrappedValue?.date == start.wrappedValue
                     Button {
                         let time = Date.now.addingTimeInterval(-Double(minutesAgo) * 60)
-                        started = time
-                        startTimeShortcut = (minutesAgo, time)
-                        if ended < time { ended = time }
+                        start.wrappedValue = time
+                        shortcut.wrappedValue = (minutesAgo, time)
+                        onSelect(time)
                         validation = nil
                     } label: {
                         Text(minutesAgo == 0 ? L10n.text("Now") :
@@ -757,7 +765,7 @@ struct FeedEditor: View {
                     .accessibilityLabel(minutesAgo == 0 ? L10n.text("Set start time to now") :
                         L10n.format("Set start time to %d minutes ago", minutesAgo))
                     .accessibilityAddTraits(selected ? .isSelected : [])
-                    .accessibilityIdentifier("bottle-time-\(minutesAgo)")
+                    .accessibilityIdentifier("\(prefix)-time-\(minutesAgo)")
                 }
             }
         }.padding(.vertical, 4)
@@ -850,10 +858,18 @@ struct FeedEditor: View {
             }
             // Preserve exact seconds (including legacy side history) when only editing an amount or note.
             let unchangedTime = feed.map { nursingMinutes == Self.formattedMinutes($0.duration) } ?? false
-            let totalSeconds = kind == .breast ? try minutes(nursingMinutes) : 0
+            let totalSeconds = kind == .breast ? (unchangedTime ? feed!.duration : try minutes(nursingMinutes)) : 0
+            // Keep historical pauses and exact timestamps when timing is untouched.
+            // New or retimed breastfeeds need only a start and active duration.
+            let breastEnd = feed.flatMap { existing in
+                existing.kind == .breast && unchangedTime && breastStarted == existing.startedAt ? existing.endedAt : nil
+            } ?? breastStarted.addingTimeInterval(totalSeconds)
+            if kind == .breast && breastEnd > .now {
+                throw FeedingError.invalid("Choose an earlier start or a shorter duration so the feed finishes in the past.")
+            }
             let entry = Feed(id: feed?.id ?? UUID(),
                 startedAt: kind == .breast ? breastStarted : started,
-                endedAt: kind == .breast ? breastEnded : feed == nil ? started : ended, kind: kind.feedKind,
+                endedAt: kind == .breast ? breastEnd : feed == nil ? started : ended, kind: kind.feedKind,
                 leftSeconds: kind == .breast ? (unchangedTime ? feed!.leftSeconds : totalSeconds) : 0,
                 rightSeconds: kind == .breast && unchangedTime ? feed!.rightSeconds : 0,
                 millilitres: bottleML, formulaMillilitres: formulaML,
