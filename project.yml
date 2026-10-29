@@ -13,6 +13,10 @@ configFiles:
 settings:
   base:
     SWIFT_VERSION: "5.0"
+    FELIX_APNS_ENVIRONMENT: development
+    FELIX_REMOTE_TIMER_UPDATES: "NO"
+    FELIX_APP_ENTITLEMENTS: ""
+    FELIX_WIDGET_ENTITLEMENTS: ""
 targets:
   FelixFeeds:
     type: application
@@ -35,11 +39,12 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_NSSupportsLiveActivities: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
-        MARKETING_VERSION: "1.8"
-        CURRENT_PROJECT_VERSION: "19"
+        MARKETING_VERSION: "1.9"
+        CURRENT_PROJECT_VERSION: "27"
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: $(FELIX_APP_ENTITLEMENTS)
   FeedingLiveActivity:
     type: app-extension
     platform: iOS
@@ -50,6 +55,7 @@ targets:
       path: LiveActivity/Info.plist
       properties:
         CFBundleDisplayName: Feeding timer
+        FelixActivityKeychainGroup: $(AppIdentifierPrefix)com.jonbright.FelixFeeds.activity-display
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
@@ -58,14 +64,27 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jonbright.FelixFeeds.LiveActivity
         GENERATE_INFOPLIST_FILE: NO
-        MARKETING_VERSION: "1.8"
-        CURRENT_PROJECT_VERSION: "19"
+        MARKETING_VERSION: "1.9"
+        CURRENT_PROJECT_VERSION: "27"
         TARGETED_DEVICE_FAMILY: "1"
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
         CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: $(FELIX_WIDGET_ENTITLEMENTS)
+  LiveActivityTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests, Shared]
+    dependencies:
+      - package: FeedingCore
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.FelixFeeds.ActivityTests
 schemes:
   FelixFeeds:
     build:
       targets:
         FelixFeeds: all
+    test:
+      targets: [LiveActivityTests]

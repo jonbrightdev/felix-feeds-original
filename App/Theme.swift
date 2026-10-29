@@ -9,7 +9,6 @@ enum Palette {
     static let background = adaptive(0xFFF8ED, 0x192A25)
     static let card = adaptive(0xFFFFFF, 0x263B33)
     static let sage = adaptive(0xE0EACC, 0x354B3B)
-    static let peach = adaptive(0xF9DFCD, 0x4E3A30)
     static let blue = adaptive(0xDFECF5, 0x2C414B)
     static let yellow = adaptive(0xF7E6AB, 0x4A432B)
     static let artInk = Color(hex: 0x344C40)

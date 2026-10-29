@@ -34,10 +34,20 @@ struct SharedHistorySettingsView: View {
                 Text("Pair each iPhone with the setup Mac once. Each phone has its own access key. Enabling sharing merges the saved feeds from both phones; no entries are replaced wholesale.")
             }
             Section("What syncs") {
-                Text("Saved feeds, hunger observations, pumping sessions, start and end times, breast durations, bottle and pumped volumes, notes, and deleted/restored entries.")
+                Text("Saved feeds, pumping sessions, start and end times, breast durations, bottle and pumped volumes, notes, and deleted/restored entries.")
                 Text("An active feeding timer stays on the phone where it was started. It joins the shared history when finished.")
-                Text("Feeds save offline and retry when the app is open. Open the app on this phone to receive feeds logged on the other phone and update its Live Activity. This version cannot push changes to a locked phone.")
+                if ActivityPushController.supportedBuild {
+                    Text("Feeds save offline and retry when the app is open. With remote timer updates configured, a saved feed can update the other phone's existing Lock Screen timer while its app is closed. The full history downloads when the app opens. Delivery needs an internet connection and may be delayed by iOS.")
+                } else {
+                    Text("Feeds save offline and sync while the app is open. Open this app to refresh shared history and the Lock Screen timer after another phone logs a feed.")
+                }
             }.font(.subheadline)
+            if sharing.enabled && ActivityPushController.supportedBuild {
+                Section("Lock Screen updates") {
+                    Text(L10n.text(sharing.activityPush.status))
+                    Text(L10n.text(sharing.activityPush.deliveryStatus)).font(.footnote).foregroundStyle(.secondary)
+                }
+            }
             Section("Backup before enabling sharing") {
                 Button("Export previous phone history", systemImage: "square.and.arrow.up") {
                     do {

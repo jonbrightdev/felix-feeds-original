@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>FelixRemoteTimerUpdates</key>
+	<string>$(FELIX_REMOTE_TIMER_UPDATES)</string>
+	<key>FelixActivityKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)com.jonbright.FelixFeeds.activity-display</string>
+	<key>FelixAPNSEnvironment</key>
+	<string>$(FELIX_APNS_ENVIRONMENT)</string>
 	<key>FelixSyncOrigin</key>
 	<string>$(FELIX_SYNC_ORIGIN)</string>
 </dict>

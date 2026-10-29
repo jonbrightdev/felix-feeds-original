@@ -3,3 +3,11 @@
 // DEVELOPMENT_TEAM = YOUR_TEAM_ID
 // xcconfig treats // as a comment; $() preserves the HTTPS URL.
 FELIX_SYNC_ORIGIN = https:/$()/sync.example.invalid
+// Must match the aps-environment in the signing profile. Development is the
+// project default; use production for distribution-signed installations.
+// FELIX_APNS_ENVIRONMENT = production
+// Remote timer updates are off by default, so free-account signing works.
+// Enable only with a supported developer team and a configured push service:
+// FELIX_REMOTE_TIMER_UPDATES = YES
+// FELIX_APP_ENTITLEMENTS = Config/App.entitlements
+// FELIX_WIDGET_ENTITLEMENTS = Config/LiveActivity.entitlements

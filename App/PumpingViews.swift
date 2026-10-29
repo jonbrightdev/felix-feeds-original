@@ -1,49 +1,6 @@
 import SwiftUI
 import FeedingCore
 
-struct PumpingLogButton: View {
-    @Environment(FeedingStore.self) private var store
-    @State private var showEditor = false
-    var body: some View {
-        Button { showEditor = true } label: {
-            HStack(spacing: 14) {
-                Image(systemName: "drop.halffull").font(.title2).foregroundStyle(Palette.green)
-                    .frame(width: 58, height: 58).background(Palette.sage, in: Circle())
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Log pumping").font(.headline)
-                    Text("Record the time and combined ml").font(.subheadline).foregroundStyle(Palette.secondary)
-                }
-                Spacer()
-                Image(systemName: "plus.circle.fill").font(.title2).foregroundStyle(Palette.green)
-            }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
-                .background(Palette.card, in: RoundedRectangle(cornerRadius: 26))
-        }.buttonStyle(SoftPressStyle()).foregroundStyle(Palette.ink)
-            .disabled(store.loadFailed).accessibilityIdentifier("log-pumping")
-            .sheet(isPresented: $showEditor) { PumpingEditor() }
-    }
-}
-
-struct PumpingSummaryCard: View {
-    @Environment(FeedingStore.self) private var store
-    let now: Date
-    var body: some View {
-        let today = PumpSummary(sessions: store.ledger.pumpSessions(on: now))
-        let last24 = store.ledger.pumpedInLast24Hours(at: now)
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Pumped today", systemImage: "drop.halffull").font(.headline).foregroundStyle(Palette.green)
-            Text("\(today.totalML) ml")
-                .font(.system(.title, design: .rounded, weight: .semibold)).monospacedDigit()
-            Text(L10n.format(today.sessionCount == 1 ? "%d session · Last 24 hours: %d ml" : "%d sessions · Last 24 hours: %d ml",
-                             today.sessionCount, last24.totalML))
-                .font(.subheadline).foregroundStyle(Palette.secondary)
-            Text("Combined output from both sides. Not counted as milk drunk.")
-                .font(.caption).foregroundStyle(Palette.secondary)
-        }.frame(maxWidth: .infinity, alignment: .leading).padding(20)
-            .background(Palette.card, in: RoundedRectangle(cornerRadius: 26))
-            .accessibilityElement(children: .combine).accessibilityIdentifier("pumping-summary")
-    }
-}
-
 struct PumpingRow: View {
     let session: PumpSession
     var body: some View {
@@ -79,25 +36,7 @@ struct PumpingEditor: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Pumping") {
-                    timeShortcuts
-                    DatePicker("Pumped at", selection: $pumpedAt, in: ...Date.now)
-                        .accessibilityIdentifier("pumped-at")
-                }
-                Section {
-                    HStack {
-                        Text("Combined output (ml)")
-                        Spacer()
-                        TextField(L10n.text("e.g. 120"), text: $amount).keyboardType(.numberPad).multilineTextAlignment(.trailing)
-                            .frame(minWidth: 65, maxWidth: 120).accessibilityLabel(L10n.text("Combined output (ml)"))
-                            .accessibilityIdentifier("pumped-amount")
-                    }
-                } header: { Text("Output") } footer: {
-                    Text("Add both sides together. Pumped milk is not counted as milk drunk; log a bottle when Felix drinks it.")
-                }
-                Section("Notes") {
-                    TextField("Anything to remember?", text: $notes, axis: .vertical).lineLimit(3...7)
-                }
+                PumpingFields(pumpedAt: $pumpedAt, amount: $amount, notes: $notes) { validation = nil }
                 if let validation { Section { Text(validation).foregroundStyle(.red) } }
                 if let session {
                     Section {
@@ -121,6 +60,47 @@ struct PumpingEditor: View {
             .interactiveDismissDisabled()
         }
     }
+    private func save() {
+        do {
+            guard let millilitres = Int(amount.trimmingCharacters(in: .whitespaces)) else {
+                throw FeedingError.invalid("Enter a combined pumped amount between 0 and 2,000 ml.")
+            }
+            var entry = session ?? PumpSession(millilitres: millilitres)
+            entry.pumpedAt = pumpedAt; entry.millilitres = millilitres; entry.notes = notes
+            try entry.validate()
+            if store.change({ try $0.upsert(entry) }) { dismiss() }
+        } catch { validation = error.localizedDescription }
+    }
+}
+
+struct PumpingFields: View {
+    @Binding var pumpedAt: Date
+    @Binding var amount: String
+    @Binding var notes: String
+    var onTimeSelected: () -> Void = {}
+
+    var body: some View {
+        Section("Pumping") {
+            timeShortcuts
+            DatePicker("Pumped at", selection: $pumpedAt, in: ...Date.now)
+                .accessibilityIdentifier("pumped-at")
+        }
+        Section {
+            HStack {
+                Text("Combined output (ml)")
+                Spacer()
+                TextField(L10n.text("e.g. 120"), text: $amount).keyboardType(.numberPad).multilineTextAlignment(.trailing)
+                    .frame(minWidth: 65, maxWidth: 120).accessibilityLabel(L10n.text("Combined output (ml)"))
+                    .accessibilityIdentifier("pumped-amount")
+            }
+        } header: { Text("Output") } footer: {
+            Text("Add both sides together. Pumped milk is not counted as milk drunk; log a bottle when Felix drinks it.")
+        }
+        Section("Notes") {
+            TextField("Anything to remember?", text: $notes, axis: .vertical).lineLimit(3...7)
+                .accessibilityIdentifier("pumping-notes")
+        }
+    }
     private var timeShortcuts: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Set time").font(.subheadline).foregroundStyle(Palette.secondary)
@@ -128,7 +108,7 @@ struct PumpingEditor: View {
                 ForEach([0, 5, 15, 30, 60], id: \.self) { minutesAgo in
                     Button {
                         pumpedAt = Date.now.addingTimeInterval(-Double(minutesAgo) * 60)
-                        validation = nil
+                        onTimeSelected()
                     } label: {
                         Text(minutesAgo == 0 ? L10n.text("Now") :
                             minutesAgo == 60 ? L10n.text("1 hour ago") : L10n.format("%d min ago", minutesAgo))
@@ -143,16 +123,5 @@ struct PumpingEditor: View {
                 }
             }
         }.padding(.vertical, 4)
-    }
-    private func save() {
-        do {
-            guard let millilitres = Int(amount.trimmingCharacters(in: .whitespaces)) else {
-                throw FeedingError.invalid("Enter a combined pumped amount between 0 and 2,000 ml.")
-            }
-            var entry = session ?? PumpSession(millilitres: millilitres)
-            entry.pumpedAt = pumpedAt; entry.millilitres = millilitres; entry.notes = notes
-            try entry.validate()
-            if store.change({ try $0.upsert(entry) }) { dismiss() }
-        } catch { validation = error.localizedDescription }
     }
 }

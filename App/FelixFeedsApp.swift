@@ -109,13 +109,20 @@ import UniformTypeIdentifiers
 @main struct FelixFeedsApp: App {
     @State private var store: FeedingStore
     @State private var sharing: SharedHistoryController
-    @State private var activities = FeedActivityController()
+    @State private var activities: FeedActivityController
     @AppStorage("appearance") private var appearance = "system"
     init() {
         let store = FeedingStore()
         let sharing = SharedHistoryController(store: store)
+        let activities = FeedActivityController(push: sharing.activityPush)
+        sharing.didSyncFeeds = { [weak store, weak activities] in
+            guard let store, let activities, !store.loadFailed else { return }
+            let enabled = UserDefaults.standard.object(forKey: "liveActivityEnabled") as? Bool ?? true
+            activities.refresh(store.ledger, enabled: enabled)
+        }
         _store = State(initialValue: store)
         _sharing = State(initialValue: sharing)
+        _activities = State(initialValue: activities)
     }
     var body: some Scene {
         WindowGroup {
@@ -150,16 +157,18 @@ struct RootView: View {
         } message: { Text(L10n.text(store.error ?? "")) }
         .onChange(of: store.ledger) { refreshActivity() }
         .onChange(of: liveActivityEnabled) { refreshActivity(force: true) }
+        .onChange(of: sharing.enabled) { refreshActivity(preserveRemote: sharing.enabled) }
+        .onChange(of: sharing.activityPush.available) { refreshActivity(preserveRemote: true) }
         .onChange(of: scenePhase, initial: true) {
-            if scenePhase == .active { sharing.startIfEnabled(); refreshActivity() }
-            else { sharing.suspend() }
+            if scenePhase == .active { sharing.startIfEnabled(); refreshActivity(preserveRemote: true) }
+            else if scenePhase == .background { sharing.suspend() }
         }
         .task { sharing.startIfEnabled() }
 
     }
-    private func refreshActivity(force: Bool = false) {
+    private func refreshActivity(force: Bool = false, preserveRemote: Bool = false) {
         guard !store.loadFailed else { return }
-        activities.refresh(store.ledger, enabled: liveActivityEnabled, force: force)
+        activities.refresh(store.ledger, enabled: liveActivityEnabled, force: force, preserveRemote: preserveRemote)
     }
 }
 
@@ -180,9 +189,7 @@ struct FeedView: View {
     @Environment(FeedingStore.self) private var store
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var showEditor = false
-    @State private var showBottle = false
     @State private var editing: Feed?
-    @State private var editingCue: HungerCue?
     @State private var editingPump: PumpSession?
     @State private var confirmDiscard = false
     @State private var finishingFeed: Feed?
@@ -191,62 +198,23 @@ struct FeedView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    HStack(alignment: .center) {
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text("Felix").font(.system(size: 38, weight: .bold, design: .rounded))
-                            Text(Date.now, format: .dateTime.weekday(.wide).day().month(.wide))
-                                .font(.subheadline).foregroundStyle(Palette.secondary)
-                        }
-                        Spacer()
-                        if !typeSize.isAccessibilitySize {
-                            Image(systemName: "heart.fill").font(.title3)
-                                .foregroundStyle(Palette.button)
-                                .frame(width: 46, height: 46).background(Palette.sage, in: Circle())
-                                .accessibilityHidden(true)
-                        }
+                    feedHeader
+                    if let active = store.ledger.active {
+                        activeCard(active)
+                        logSessionButton
+                    } else {
+                        readyCard
                     }
-                    if let active = store.ledger.active { activeCard(active) }
-                    else { readyCard }
-                    HungerCueLogButton()
-                    Button { showBottle = true } label: {
-                        HStack(spacing: 14) {
-                            BabyIllustration(pose: .bottle, width: 62, animated: false)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Log a bottle").font(.headline)
-                                Text("Record volume drunk in ml").font(.subheadline).foregroundStyle(Palette.secondary)
-                            }
-                            Spacer()
-                            Image(systemName: "plus.circle.fill").font(.title2).foregroundStyle(Palette.green)
-                        }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Palette.blue, in: RoundedRectangle(cornerRadius: 26))
-                    }.buttonStyle(SoftPressStyle()).accessibilityIdentifier("log-bottle")
-                    PumpingLogButton()
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("Today").font(.title3.bold())
-                        TimelineView(.periodic(from: .now, by: 60)) { context in
-                            let today = store.ledger.feeds(on: context.date)
-                            VStack(spacing: 12) {
-                                volumeCard(today, now: context.date)
-                                PumpingSummaryCard(now: context.date)
-                                ViewThatFits(in: .horizontal) {
-                                    HStack(spacing: 10) { stats(today) }
-                                    VStack(spacing: 10) { stats(today) }
-                                }
-                            }
-                        }
+                    TimelineView(.periodic(from: .now, by: 60)) { context in
+                        milkCard(now: context.date)
                     }
                     VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Text("Recent history").font(.title3.bold())
-                            Spacer()
-                            Button("Log a feed", systemImage: "plus") { showEditor = true }
-                                .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
-                        }
+                        Text("Recent history").font(.title3.bold())
                         if store.ledger.visibleHistory.isEmpty {
                             VStack(spacing: 10) {
                                 BabyIllustration(pose: .resting, width: 78, animated: false)
                                 Text("A little rhythm, one feed at a time.").font(.headline).multilineTextAlignment(.center)
-                                Text("Start a timer above, or log an earlier feed.")
+                                Text("Log a session to record a bottle, breastfeeding or pumping.")
                                     .font(.subheadline).foregroundStyle(Palette.secondary).multilineTextAlignment(.center)
                             }.frame(maxWidth: .infinity).padding(24).background(Palette.card, in: RoundedRectangle(cornerRadius: 22))
                         } else {
@@ -255,7 +223,6 @@ struct FeedView: View {
                                     Button {
                                         switch entry {
                                         case .feed(let feed): editing = feed
-                                        case .hunger(let cue): editingCue = cue
                                         case .pump(let session): editingPump = session
                                         }
                                     } label: { HistoryEntryRow(entry: entry) }
@@ -272,10 +239,8 @@ struct FeedView: View {
             .navigationTitle("Feeding")
             .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showEditor) { FeedEditor() }
-            .sheet(isPresented: $showBottle) { FeedEditor(defaultKind: .expressed) }
             .sheet(item: $editing) { FeedEditor(feed: $0) }
             .sheet(item: $finishingFeed) { FeedEditor(feed: $0, finishingTimer: true) }
-            .sheet(item: $editingCue) { HungerCueEditor(cue: $0) }
             .sheet(item: $editingPump) { PumpingEditor(session: $0) }
             .confirmationDialog("Discard this timer?", isPresented: $confirmDiscard, titleVisibility: .visible) {
                 Button("Discard timer", role: .destructive) { store.change { $0.active = nil } }
@@ -284,43 +249,72 @@ struct FeedView: View {
         }
     }
 
+    private var feedHeader: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Felix").font(.system(size: 38, weight: .bold, design: .rounded))
+                Text(context.date, format: .dateTime.weekday(.wide).day().month(.wide))
+                    .font(.subheadline).foregroundStyle(Palette.secondary)
+            }
+        }.accessibilityIdentifier("feed-header")
+    }
+
     private var readyCard: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack(alignment: .center, spacing: 8) {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("SINCE LAST FEED STARTED").font(.caption.weight(.semibold)).tracking(1).foregroundStyle(Palette.secondary)
-                    if let last = store.ledger.visibleFeeds.first {
-                        Text(TimeText.duration(context.date.timeIntervalSince(last.startedAt)))
-                            .font(.system(.largeTitle, design: .rounded, weight: .medium)).monospacedDigit()
-                            .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
-                            .minimumScaleFactor(typeSize.isAccessibilitySize ? 1 : 0.65)
-                        Text("\(last.kind.title) · \(last.startedAt.formatted(date: .omitted, time: .shortened))")
-                            .font(.subheadline).foregroundStyle(Palette.secondary)
-                    } else {
-                        Text("Ready when you are.").font(.system(.title, design: .rounded, weight: .medium))
-                        Text("Keep track of every little feed.").font(.subheadline).foregroundStyle(Palette.secondary)
-                    }
+                    sinceLastFeed(now: context.date)
                 }
-            }
                 if !typeSize.isAccessibilitySize {
                     Spacer(minLength: 0)
                     BabyIllustration(pose: .hello, width: 104)
                 }
             }
-            Button {
-                store.change { try $0.start(side: .left, now: .now) }
-            } label: {
-                Label("Start breastfeeding", systemImage: "heart.fill")
-                    .font(.headline).frame(maxWidth: .infinity, minHeight: 70)
-                    .foregroundStyle(.white)
-                    .background(Palette.button, in: RoundedRectangle(cornerRadius: 20))
-            }.buttonStyle(SoftPressStyle()).accessibilityIdentifier("start-breastfeeding")
-            Button { showEditor = true } label: {
-                Label("Log an earlier breastfeed", systemImage: "plus.circle")
-                    .font(.subheadline.weight(.medium)).frame(maxWidth: .infinity, minHeight: 44)
+            logSessionButton
+        }.padding(22).background(Palette.blue, in: RoundedRectangle(cornerRadius: 30))
+    }
+
+    private var logSessionButton: some View {
+        Button { showEditor = true } label: {
+            Label("Log a session", systemImage: "plus")
+                .font(.headline).padding(.horizontal, 16).padding(.vertical, 14)
+                .frame(maxWidth: .infinity, minHeight: 54)
+                .foregroundStyle(.white)
+                .background(Palette.button, in: RoundedRectangle(cornerRadius: 18))
+        }.buttonStyle(SoftPressStyle()).disabled(store.loadFailed).accessibilityIdentifier("log-session")
+    }
+
+    private func sinceLastFeed(now: Date) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("SINCE LAST FEED").font(.caption.weight(.semibold)).tracking(1).foregroundStyle(Palette.secondary)
+            if let last = store.ledger.visibleFeeds.first {
+                Text(TimeText.duration(now.timeIntervalSince(last.startedAt)))
+                    .font(.system(.title, design: .rounded, weight: .medium)).monospacedDigit()
+                    .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                    .minimumScaleFactor(typeSize.isAccessibilitySize ? 1 : 0.65)
+            } else {
+                Text("Ready when you are.").font(.system(.title2, design: .rounded, weight: .medium))
+                Text("Keep track of every little feed.").font(.subheadline).foregroundStyle(Palette.secondary)
             }
-        }.padding(22).background(Palette.sage, in: RoundedRectangle(cornerRadius: 30))
+        }
+    }
+
+    // Totals include parent-entered breast estimates; elapsed time never adds volume.
+    // Both days follow the phone's calendar, matching how history groups feeds.
+    private func milkCard(now: Date) -> some View {
+        let calendar = Calendar.current
+        let today = VolumeSummary(feeds: store.ledger.feeds(on: now, calendar: calendar))
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: now)
+            .map { VolumeSummary(feeds: store.ledger.feeds(on: $0, calendar: calendar)) }
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("MILK TODAY").font(.caption.weight(.semibold)).tracking(1).foregroundStyle(Palette.secondary)
+            Text("\(today.totalML) ml")
+                .font(.system(.title, design: .rounded, weight: .semibold)).monospacedDigit()
+                .lineLimit(1).minimumScaleFactor(typeSize.isAccessibilitySize ? 1 : 0.65)
+            Text(L10n.format("Yesterday: %d ml", yesterday?.totalML ?? 0)).font(.subheadline).foregroundStyle(Palette.secondary)
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(22)
+            .background(Palette.card, in: RoundedRectangle(cornerRadius: 30))
+            .accessibilityElement(children: .combine).accessibilityIdentifier("volume-summary")
     }
 
     private func activeCard(_ active: ActiveFeed) -> some View {
@@ -380,46 +374,6 @@ struct FeedView: View {
             Label("Finish feed", systemImage: "checkmark").font(.headline).fixedSize().frame(maxWidth: .infinity, minHeight: 44)
         }.buttonStyle(.borderedProminent).tint(Palette.button).foregroundStyle(.white).accessibilityIdentifier("finish-feed")
     }
-
-    private func volumeCard(_ feeds: [Feed], now: Date) -> some View {
-        let volume = VolumeSummary(feeds: feeds)
-        let last24 = store.ledger.volumeInLast24Hours(at: now)
-        return VStack(alignment: .leading, spacing: 12) {
-            Label("Milk intake today", systemImage: "drop").font(.headline).foregroundStyle(Palette.green)
-            Text("\(volume.totalML) ml")
-                .font(.system(.largeTitle, design: .rounded, weight: .semibold)).monospacedDigit()
-            Text(L10n.format("%d ml expressed milk · %d ml formula", volume.expressedML, volume.formulaML))
-                .font(.subheadline).foregroundStyle(Palette.secondary)
-            Text(L10n.format("Last 24 hours: %d ml", last24.totalML))
-                .font(.subheadline.weight(.medium))
-            Text(L10n.format("%d ml estimated at breast", volume.estimatedBreastML))
-                .font(.subheadline).foregroundStyle(Palette.secondary)
-            Text("Includes parent-entered breastfeeding estimates. Time alone does not add milk volume.")
-                .font(.caption).foregroundStyle(Palette.secondary)
-        }.frame(maxWidth: .infinity, alignment: .leading).padding(20)
-            .background(Palette.yellow, in: RoundedRectangle(cornerRadius: 26))
-            .accessibilityElement(children: .combine).accessibilityIdentifier("volume-summary")
-    }
-
-    @ViewBuilder private func stats(_ feeds: [Feed]) -> some View {
-        StatTile(value: "\(feeds.count)", title: "feeds", symbol: "heart")
-        StatTile(value: L10n.format("%d min", Int(feeds.reduce(0) { $0 + $1.duration }) / 60), title: "at breast", symbol: "timer")
-    }
-}
-
-struct StatTile: View {
-    let value: String
-    let title: String
-    let symbol: String
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Image(systemName: symbol).foregroundStyle(Palette.green)
-            Text(value).font(.system(.title3, design: .rounded, weight: .semibold)).fixedSize()
-            Text(L10n.text(title)).font(.caption).foregroundStyle(Palette.secondary).fixedSize()
-        }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
-            .background(Palette.card, in: RoundedRectangle(cornerRadius: 18))
-            .accessibilityElement(children: .combine)
-    }
 }
 
 struct FeedRow: View {
@@ -430,9 +384,13 @@ struct FeedRow: View {
                 .foregroundStyle(Palette.green).frame(width: 40, height: 44)
                 .background(Palette.sage, in: RoundedRectangle(cornerRadius: 14))
             VStack(alignment: .leading, spacing: 5) {
-                Text(feed.kind.title).font(.headline)
+                Text(feed.title).font(.headline)
                 Text(feed.kind == .breast ? TimeText.duration(feed.duration) : "\(feed.millilitres ?? 0) ml")
                     .font(.subheadline).foregroundStyle(Palette.secondary)
+                if feed.isMixedBottle {
+                    Text(L10n.format("%d ml expressed + %d ml formula", feed.expressedML, feed.formulaML))
+                        .font(.subheadline).foregroundStyle(Palette.secondary)
+                }
                 if feed.kind == .breast, let estimate = feed.estimatedMillilitres {
                     Text(L10n.format("Estimated milk: %d ml", estimate))
                         .font(.subheadline).foregroundStyle(Palette.secondary)
@@ -446,10 +404,19 @@ struct FeedRow: View {
     }
 }
 
+struct HistoryEntryRow: View {
+    let entry: HistoryEntry
+    var body: some View {
+        switch entry {
+        case .feed(let feed): FeedRow(feed: feed)
+        case .pump(let session): PumpingRow(session: session)
+        }
+    }
+}
+
 struct HistoryView: View {
     @Environment(FeedingStore.self) private var store
     @State private var editing: Feed?
-    @State private var editingCue: HungerCue?
     @State private var editingPump: PumpSession?
     @State private var adding = false
     private var days: [Date] {
@@ -462,7 +429,7 @@ struct HistoryView: View {
                     VStack(spacing: 16) {
                         BabyIllustration(pose: .resting, width: 140, animated: false)
                         Text("No history yet").font(.title2.bold())
-                        Text("Feeds, hunger observations and pumping will appear here.")
+                        Text("Feeds and pumping will appear here.")
                             .font(.subheadline).foregroundStyle(Palette.secondary).multilineTextAlignment(.center)
                     }.padding(32).frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
@@ -473,7 +440,6 @@ struct HistoryView: View {
                                     Button {
                                         switch entry {
                                         case .feed(let feed): editing = feed
-                                        case .hunger(let cue): editingCue = cue
                                         case .pump(let session): editingPump = session
                                         }
                                     } label: { HistoryEntryRow(entry: entry) }.buttonStyle(.plain)
@@ -482,7 +448,6 @@ struct HistoryView: View {
                                                 store.change {
                                                     switch entry {
                                                     case .feed(let feed): $0.setDeleted(feed.id, at: .now)
-                                                    case .hunger(let cue): $0.setHungerCueDeleted(cue.id, at: .now)
                                                     case .pump(let session): $0.setPumpSessionDeleted(session.id, at: .now)
                                                     }
                                                 }
@@ -495,10 +460,8 @@ struct HistoryView: View {
                                 let feeds = store.ledger.feeds(on: day)
                                 let count = feeds.count
                                 let volume = VolumeSummary(feeds: feeds)
-                                let cues = store.ledger.history(on: day).filter { if case .hunger = $0 { return true }; return false }.count
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(L10n.format(count == 1 ? "%d feed · %d ml intake · Includes estimates · Grouped by start date" : "%d feeds · %d ml intake · Includes estimates · Grouped by start date", count, volume.totalML))
-                                    if cues > 0 { Text(L10n.format(cues == 1 ? "%d hunger observation" : "%d hunger observations", cues)) }
                                     let pumped = PumpSummary(sessions: store.ledger.pumpSessions(on: day))
                                     if pumped.sessionCount > 0 {
                                         Text(L10n.format(pumped.sessionCount == 1 ? "%d pumping session · %d ml pumped" : "%d pumping sessions · %d ml pumped",
@@ -512,109 +475,258 @@ struct HistoryView: View {
             }
             .felixFormStyle()
             .navigationTitle("History")
-            .toolbar { Button("Log a feed", systemImage: "plus") { adding = true } }
+            .toolbar { Button("Log a session", systemImage: "plus") { adding = true } }
             .sheet(isPresented: $adding) { FeedEditor() }
             .sheet(item: $editing) { FeedEditor(feed: $0) }
-            .sheet(item: $editingCue) { HungerCueEditor(cue: $0) }
             .sheet(item: $editingPump) { PumpingEditor(session: $0) }
         }
     }
 }
 
 struct FeedEditor: View {
+    private enum SessionKind: Hashable {
+        case bottle, breast, pump
+    }
+    private enum BreastTiming: Hashable {
+        case earlier, now
+    }
+    private enum NumericField: String, Hashable {
+        case volume, expressedVolume, formulaVolume, nursingMinutes, estimate
+    }
+    private enum Kind: String, CaseIterable, Identifiable {
+        case breast, expressed, formula, mixed
+        var id: String { rawValue }
+        var feedKind: FeedKind { self == .mixed ? .expressed : FeedKind(rawValue: rawValue)! }
+        var title: String { self == .mixed ? L10n.text("Mixed bottle") : feedKind.title }
+    }
     @Environment(FeedingStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     let feed: Feed?
     let finishingTimer: Bool
-    @State private var kind: FeedKind
+    @State private var sessionKind: SessionKind
+    @State private var milkKind: Kind
+    @State private var breastTiming = BreastTiming.earlier
     @State private var started: Date
+    @State private var startTimeShortcut: (minutesAgo: Int, date: Date)?
     @State private var ended: Date
+    @State private var breastStarted: Date
+    @State private var breastEnded: Date
     @State private var nursingMinutes: String
     @State private var estimate: String
     @State private var amount: String
+    @State private var expressedAmount: String
+    @State private var formulaAmount: String
     @State private var notes: String
+    @State private var pumpedAt: Date
+    @State private var pumpedAmount = ""
+    @State private var pumpingNotes = ""
     @State private var validation: String?
+    @FocusState private var focusedField: NumericField?
 
-    init(feed: Feed? = nil, defaultKind: FeedKind = .breast, finishingTimer: Bool = false) {
+    private var kind: Kind { sessionKind == .breast ? .breast : milkKind }
+    private var startingTimer: Bool { sessionKind == .breast && breastTiming == .now && feed == nil && !finishingTimer }
+
+    init(feed: Feed? = nil, defaultKind: FeedKind = .expressed, finishingTimer: Bool = false) {
         self.feed = feed
         self.finishingTimer = finishingTimer
         let now = Date.now
-        _kind = State(initialValue: feed?.kind ?? defaultKind)
+        let initialKind = feed?.kind ?? defaultKind
+        _sessionKind = State(initialValue: initialKind == .breast ? .breast : .bottle)
+        _milkKind = State(initialValue: feed?.isMixedBottle == true ? .mixed : initialKind == .formula ? .formula : .expressed)
         _started = State(initialValue: feed?.startedAt ?? (defaultKind == .breast ? now.addingTimeInterval(-15 * 60) : now))
         _ended = State(initialValue: feed?.endedAt ?? now)
+        _breastStarted = State(initialValue: feed?.startedAt ?? now.addingTimeInterval(-15 * 60))
+        _breastEnded = State(initialValue: feed?.endedAt ?? now)
         _nursingMinutes = State(initialValue: feed.map { Self.formattedMinutes($0.duration) } ?? "")
         _estimate = State(initialValue: feed?.estimatedMillilitres.map(String.init) ?? "")
         _amount = State(initialValue: feed?.millilitres.map(String.init) ?? "")
+        _expressedAmount = State(initialValue: feed?.isMixedBottle == true ? String(feed!.expressedML) : "")
+        _formulaAmount = State(initialValue: feed?.isMixedBottle == true ? String(feed!.formulaML) : "")
         _notes = State(initialValue: feed?.notes ?? "")
+        _pumpedAt = State(initialValue: now)
     }
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Feeding") {
-                    if !finishingTimer {
-                        Picker("Type", selection: $kind) {
-                            ForEach(FeedKind.allCases) { Text($0.title).tag($0) }
+            ScrollViewReader { scrollProxy in
+                VStack(spacing: 0) {
+                    sessionPicker
+                    Form {
+                        if sessionKind == .pump {
+                            PumpingFields(pumpedAt: $pumpedAt, amount: $pumpedAmount, notes: $pumpingNotes) { validation = nil }
+                        } else {
+                            feedFields
+                        }
+                        if let validation {
+                            Section { Text(validation).foregroundStyle(.red) }
+                                .id("session-validation").accessibilityIdentifier("session-validation")
+                        }
+                        if let feed, !finishingTimer {
+                            Section {
+                                Button("Delete feed", role: .destructive) {
+                                    if store.change({ $0.setDeleted(feed.id, at: .now) }) { dismiss() }
+                                }
+                            } footer: { Text("Deleted feeds can be restored in Settings.") }
+                        }
+                    }.id(sessionKind)
+                }
+                .felixFormStyle()
+                .navigationTitle(L10n.text(finishingTimer ? "Finish feed" : feed == nil ? "Log a session" : "Edit feed"))
+                .navigationBarTitleDisplayMode(.inline)
+                .onChange(of: sessionKind) { resetFocus() }
+                .onChange(of: milkKind) { resetFocus() }
+                .onChange(of: breastTiming) { resetFocus() }
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                    ToolbarItem(placement: .confirmationAction) {
+                        if !startingTimer {
+                            Button("Save", action: save).bold()
+                                .accessibilityIdentifier(sessionKind == .pump ? "save-pumping" : "save-feed")
                         }
                     }
-                    if kind != .breast { bottleTimeShortcuts }
-                    DatePicker("Started", selection: $started, in: ...Date.now)
-                        .accessibilityIdentifier("feed-started")
-                    DatePicker("Ended", selection: $ended, in: ...Date.now)
-                        .accessibilityIdentifier("feed-ended")
-                }
-                if kind == .breast {
-                    Section {
-                        numericField("Time at breast (minutes)", text: $nursingMinutes, placeholder: "0")
-                    } footer: { Text("Enter total active breastfeeding time. Pauses are excluded. Decimals are supported.") }
-                    Section {
-                        numericField("Estimated milk (ml)", text: $estimate, placeholder: "Optional")
-                    } header: { Text("Milk estimate") } footer: {
-                        Text("Your estimate counts toward daily milk intake. Leave blank if unknown; time is not converted into ml.")
-                    }
-                } else {
-                    Section {
-                        numericField("Volume drunk (ml)", text: $amount, placeholder: "e.g. 60")
-                        bottleVolumeShortcuts
-                    } header: { Text("Bottle volume") } footer: {
-                        Text("Enter how much Felix actually drank, rather than the amount prepared.")
-                    }
-                }
-                Section("Notes") {
-                    TextField("Anything to remember?", text: $notes, axis: .vertical).lineLimit(3...7)
-                        .accessibilityIdentifier("feed-notes")
-                }
-                if let validation { Section { Text(validation).foregroundStyle(.red) } }
-                if let feed, !finishingTimer {
-                    Section {
-                        Button("Delete feed", role: .destructive) {
-                            if store.change({ $0.setDeleted(feed.id, at: .now) }) { dismiss() }
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Spacer()
+                        Button("Done") {
+                            focusedField = nil
+                            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                         }
-                    } footer: { Text("Deleted feeds can be restored in Settings.") }
+                    }
+                }
+                .interactiveDismissDisabled()
+                .onChange(of: focusedField) {
+                    if let focusedField { scrollProxy.scrollTo(focusedField, anchor: .center) }
+                }
+                .onChange(of: validation) {
+                    if validation != nil {
+                        focusedField = nil
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                        scrollProxy.scrollTo("session-validation", anchor: .center)
+                    }
                 }
             }
-            .felixFormStyle()
-            .navigationTitle(L10n.text(finishingTimer ? "Finish feed" : feed == nil ? (kind == .breast ? "Log a feed" : "Log a bottle") : "Edit feed"))
-            .navigationBarTitleDisplayMode(.inline)
-            .onChange(of: kind) { validation = nil }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button("Save", action: save).bold().accessibilityIdentifier("save-feed") }
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
-                }
-            }
-            .interactiveDismissDisabled()
         }
+    }
+    @ViewBuilder private var sessionPicker: some View {
+        if !finishingTimer {
+            EditorChoicePicker(title: "Session type", selection: $sessionKind,
+                options: feed == nil ? [(.bottle, "Bottle"), (.breast, "Breastfeeding"), (.pump, "Pumping")]
+                    : [(.bottle, "Bottle"), (.breast, "Breastfeeding")])
+                .accessibilityIdentifier("session-type")
+                .padding(.horizontal, 20).padding(.vertical, 8)
+                .background(Palette.background)
+        }
+    }
+
+    @ViewBuilder private var feedFields: some View {
+        if sessionKind == .bottle {
+            Section("Milk type") {
+                EditorChoicePicker(title: "Milk type", selection: $milkKind,
+                    options: [(.expressed, "Expressed"), (.formula, "Formula"), (.mixed, "Mixed")])
+                    .accessibilityIdentifier("bottle-milk-type")
+            }.listRowBackground(Color.clear).listRowInsets(EdgeInsets())
+        } else if feed == nil && !finishingTimer {
+            Section {
+                EditorChoicePicker(title: "Breastfeeding time", selection: $breastTiming,
+                    options: [(.earlier, "Earlier feed"), (.now, "Feed now")])
+                    .accessibilityIdentifier("breastfeeding-time")
+            }.listRowBackground(Color.clear).listRowInsets(EdgeInsets())
+        }
+        if startingTimer {
+            timerSection
+        } else {
+            feedDetails
+            Section("Notes") {
+                TextField("Anything to remember?", text: $notes, axis: .vertical).lineLimit(3...7)
+                    .accessibilityIdentifier("feed-notes")
+            }
+        }
+    }
+
+    @ViewBuilder private var feedDetails: some View {
+        Section {
+            DatePicker("Started", selection: sessionKind == .breast ? $breastStarted : $started, in: ...Date.now)
+                .accessibilityIdentifier("feed-started")
+            if sessionKind == .breast || feed != nil {
+                DatePicker("Ended", selection: sessionKind == .breast ? $breastEnded : $ended, in: ...Date.now)
+                    .accessibilityIdentifier("feed-ended")
+            }
+        } header: { Text(L10n.text(sessionKind == .breast ? "Feed details" : "Bottle details")) }
+        if kind == .breast {
+            Section {
+                numericField("Time at breast (minutes)", text: $nursingMinutes, placeholder: "0", field: .nursingMinutes)
+            } footer: { Text("Enter total active breastfeeding time. Pauses are excluded. Decimals are supported.") }
+            Section {
+                numericField("Estimated milk (ml)", text: $estimate, placeholder: "Optional", field: .estimate)
+            } header: { Text("Milk estimate") } footer: {
+                Text("Your estimate counts toward daily milk intake. Leave blank if unknown; time is not converted into ml.")
+            }
+        } else {
+            bottleVolumeSection
+            Section { bottleTimeShortcuts }
+        }
+    }
+
+    private var bottleVolumeSection: some View {
+        Section {
+            if kind == .mixed {
+                numericField("Expressed milk (ml)", text: $expressedAmount, placeholder: "e.g. 60", field: .expressedVolume)
+                numericField("Formula (ml)", text: $formulaAmount, placeholder: "e.g. 60", field: .formulaVolume)
+                LabeledContent("Total drunk", value: mixedTotal.map { L10n.format("%d ml", $0) } ?? "—")
+                    .accessibilityIdentifier("mixed-bottle-total")
+            } else {
+                numericField("Volume drunk (ml)", text: $amount, placeholder: "e.g. 60", field: .volume)
+                bottleVolumeShortcuts
+            }
+        } header: { Text("Bottle volume") } footer: {
+            if kind == .mixed {
+                Text("Enter the expressed milk and formula in the amount Felix drank. This is saved as one bottle.")
+            } else {
+                Text("Enter how much Felix actually drank, rather than the amount prepared.")
+            }
+        }
+    }
+
+    private func resetFocus() {
+        focusedField = nil
+        validation = nil
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
+    private var timerSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 16) {
+                Label("Feeding now?", systemImage: "timer").font(.headline)
+                Text("Time a feed as it happens.").font(.subheadline).foregroundStyle(Palette.secondary)
+                if store.ledger.active == nil {
+                    Button {
+                        if store.change({ try $0.start(side: .left, now: .now) }) { dismiss() }
+                    } label: {
+                        Text("Start timer").font(.headline).padding(.vertical, 14)
+                            .frame(maxWidth: .infinity, minHeight: 54)
+                            .foregroundStyle(.white)
+                            .background(Palette.button, in: RoundedRectangle(cornerRadius: 18))
+                    }.buttonStyle(SoftPressStyle()).disabled(store.loadFailed)
+                        .accessibilityIdentifier("start-breastfeeding")
+                } else {
+                    Text("Finish the current feed first.").font(.subheadline)
+                    Button("Return to timer") { dismiss() }.frame(minHeight: 44)
+                }
+                Text("Your timer continues when the phone is locked.")
+                    .font(.caption).foregroundStyle(Palette.secondary)
+            }.padding(.vertical, 8)
+        }.listRowBackground(Palette.sage)
     }
     private var bottleTimeShortcuts: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Set start time").font(.subheadline).foregroundStyle(Palette.secondary)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], spacing: 8) {
                 ForEach([0, 5, 15, 30, 60], id: \.self) { minutesAgo in
+                    // Keep the chosen shortcut highlighted as time passes; a manual
+                    // start-time change stops matching the shortcut's exact timestamp.
+                    let selected = startTimeShortcut?.minutesAgo == minutesAgo && startTimeShortcut?.date == started
                     Button {
                         let time = Date.now.addingTimeInterval(-Double(minutesAgo) * 60)
                         started = time
+                        startTimeShortcut = (minutesAgo, time)
                         if ended < time { ended = time }
                         validation = nil
                     } label: {
@@ -623,10 +735,15 @@ struct FeedEditor: View {
                             .font(.subheadline.weight(.semibold))
                             .frame(maxWidth: .infinity, minHeight: 44)
                             .background(Palette.sage, in: RoundedRectangle(cornerRadius: 12))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .strokeBorder(selected ? Palette.green : .clear, lineWidth: 2)
+                            }
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(minutesAgo == 0 ? L10n.text("Set start time to now") :
                         L10n.format("Set start time to %d minutes ago", minutesAgo))
+                    .accessibilityAddTraits(selected ? .isSelected : [])
                     .accessibilityIdentifier("bottle-time-\(minutesAgo)")
                 }
             }
@@ -656,13 +773,26 @@ struct FeedEditor: View {
             }
         }.padding(.vertical, 4)
     }
-    private func numericField(_ title: String, text: Binding<String>, placeholder: String) -> some View {
+    private func numericField(_ title: String, text: Binding<String>, placeholder: String, field: NumericField) -> some View {
         HStack {
             Text(L10n.text(title))
             Spacer()
             TextField(L10n.text(placeholder), text: text).keyboardType(.decimalPad).multilineTextAlignment(.trailing)
+                .focused($focusedField, equals: field)
                 .frame(minWidth: 65, maxWidth: 120).accessibilityLabel(L10n.text(title))
+                .accessibilityIdentifier("feed-\(field.rawValue)")
         }
+        .id(field)
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .contentShape(Rectangle())
+        // Include the label and empty space without replacing native text-field gestures.
+        .simultaneousGesture(TapGesture().onEnded { focusedField = field })
+    }
+    private var mixedTotal: Int? {
+        guard let expressed = Int(expressedAmount.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let formula = Int(formulaAmount.trimmingCharacters(in: .whitespacesAndNewlines)),
+              (1...2000).contains(expressed), (1...2000).contains(formula), expressed + formula <= 2000 else { return nil }
+        return expressed + formula
     }
     private func minutes(_ text: String) throws -> Double {
         if text.trimmingCharacters(in: .whitespaces).isEmpty { return 0 }
@@ -676,6 +806,15 @@ struct FeedEditor: View {
     }
     private func save() {
         do {
+            if sessionKind == .pump {
+                guard let millilitres = Int(pumpedAmount.trimmingCharacters(in: .whitespaces)) else {
+                    throw FeedingError.invalid("Enter a combined pumped amount between 0 and 2,000 ml.")
+                }
+                let entry = PumpSession(pumpedAt: pumpedAt, millilitres: millilitres, notes: pumpingNotes)
+                try entry.validate()
+                if store.change({ try $0.upsert(entry) }) { dismiss() }
+                return
+            }
             let trimmedEstimate = estimate.trimmingCharacters(in: .whitespacesAndNewlines)
             let estimatedML: Int?
             if kind == .breast && !trimmedEstimate.isEmpty {
@@ -684,13 +823,27 @@ struct FeedEditor: View {
                 }
                 estimatedML = value
             } else { estimatedML = nil }
+            let bottleML: Int?
+            let formulaML: Int?
+            if kind == .mixed {
+                guard let total = mixedTotal else {
+                    throw FeedingError.invalid("Enter both milk amounts above 0 ml, with a total no more than 2,000 ml.")
+                }
+                bottleML = total
+                formulaML = Int(formulaAmount.trimmingCharacters(in: .whitespacesAndNewlines))
+            } else {
+                bottleML = kind == .breast ? nil : Int(amount.trimmingCharacters(in: .whitespaces))
+                formulaML = nil
+            }
             // Preserve exact seconds (including legacy side history) when only editing an amount or note.
             let unchangedTime = feed.map { nursingMinutes == Self.formattedMinutes($0.duration) } ?? false
             let totalSeconds = kind == .breast ? try minutes(nursingMinutes) : 0
-            let entry = Feed(id: feed?.id ?? UUID(), startedAt: started, endedAt: ended, kind: kind,
+            let entry = Feed(id: feed?.id ?? UUID(),
+                startedAt: kind == .breast ? breastStarted : started,
+                endedAt: kind == .breast ? breastEnded : feed == nil ? started : ended, kind: kind.feedKind,
                 leftSeconds: kind == .breast ? (unchangedTime ? feed!.leftSeconds : totalSeconds) : 0,
                 rightSeconds: kind == .breast && unchangedTime ? feed!.rightSeconds : 0,
-                millilitres: kind == .breast ? nil : Int(amount.trimmingCharacters(in: .whitespaces)),
+                millilitres: bottleML, formulaMillilitres: formulaML,
                 estimatedMillilitres: estimatedML, notes: notes)
             try entry.validate()
             if store.change({ ledger in
@@ -726,7 +879,6 @@ struct SettingsView: View {
     @State private var importResult: String?
     private var deleted: [HistoryEntry] {
         (store.ledger.feeds.filter { $0.deletedAt != nil }.map(HistoryEntry.feed) +
-         store.ledger.hungerCues.filter { $0.deletedAt != nil }.map(HistoryEntry.hunger) +
          store.ledger.pumpSessions.filter { $0.deletedAt != nil }.map(HistoryEntry.pump)).sorted { $0.date > $1.date }
     }
     var body: some View {
@@ -766,14 +918,14 @@ struct SettingsView: View {
                     }
                     Text(L10n.text(activities.status)).font(.footnote).foregroundStyle(Palette.secondary)
                 } header: { Text("At a glance") } footer: {
-                    Text("Shows time since the last feed started, its type and bottle volume on the Lock Screen and Dynamic Island. Each new feed renews the activity. iOS limits an activity to eight hours; reopen the app or tap Show to restore it. You can swipe it away without deleting a feed.")
+                    Text("Shows time since the last feed started, its type and bottle volume on the Lock Screen and Dynamic Island. iOS limits an activity to eight hours; reopen the app or tap Show to restore it. You can swipe it away without deleting a feed.")
                 }
                 Section {
                     Button("Export backup", systemImage: "square.and.arrow.up") { export(json: true) }
                     Button("Export spreadsheet (CSV)", systemImage: "tablecells") { export(json: false) }
                     Button("Import backup", systemImage: "square.and.arrow.down") { importing = true }
                 } header: { Text("Your records") } footer: {
-                    Text("Backups include saved feeds, hunger observations, pumping sessions and the timer. Import adds missing entries and keeps existing records and your current timer. Export regularly before changing phones or removing the app.")
+                    Text("Backups include saved feeds, pumping sessions and the timer. Import adds missing entries and keeps existing records and your current timer. Export regularly before changing phones or removing the app.")
                 }
                 Section {
                     NavigationLink(L10n.format("Recently deleted (%d)", deleted.count)) {
@@ -787,7 +939,6 @@ struct SettingsView: View {
                                         store.change {
                                             switch entry {
                                             case .feed(let feed): $0.setDeleted(feed.id, at: nil)
-                                            case .hunger(let cue): $0.setHungerCueDeleted(cue.id, at: nil)
                                             case .pump(let session): $0.setPumpSessionDeleted(session.id, at: nil)
                                             }
                                         }

@@ -48,7 +48,7 @@ struct TrendsView: View {
                     VStack(spacing: 10) {
                         Image(systemName: "chart.bar.xaxis").font(.largeTitle).foregroundStyle(Palette.green)
                         Text("Your rhythm starts here").font(.headline)
-                        Text("Log a feed or hunger signs to see them here. Days without entries mean nothing was logged.")
+                        Text("Log a feed to see it here. Days without entries mean nothing was logged.")
                             .font(.subheadline).foregroundStyle(Palette.secondary)
                     }
                     .multilineTextAlignment(.center).frame(maxWidth: .infinity)
@@ -86,7 +86,7 @@ struct TrendsView: View {
                     Image(systemName: "chevron.right").frame(width: 44, height: 44)
                 }.disabled(day.id == days.last?.id).accessibilityLabel("Next day")
             }
-            Text(L10n.format("Feeds: %d · Hunger signs: %d", day.feedCount, day.hungerCueCount))
+            Text(L10n.format("Feeds: %d", day.feedCount))
                 .font(.subheadline).foregroundStyle(Palette.secondary)
             Text("Touch a chart to explore a day.").font(.caption).foregroundStyle(Palette.secondary)
         }.padding(16).background(Palette.sage, in: RoundedRectangle(cornerRadius: 24))
@@ -189,16 +189,15 @@ struct TrendsView: View {
     private func rhythmChart(_ day: FeedingDay, now: Date) -> some View {
         let entries = store.ledger.history(on: day.date).filter { entry in
             if case .feed(let feed) = entry { return feed.endedAt <= now }
-            if case .pump = entry { return false }
-            return entry.date <= now
+            return false
         }
         let next = Calendar.current.date(byAdding: .day, value: 1, to: day.date)!
-        let labels = [FeedKind.breast.title, FeedKind.expressed.title, FeedKind.formula.title, L10n.text("Hunger signs")]
+        let labels = [FeedKind.breast.title, FeedKind.expressed.title, FeedKind.formula.title, L10n.text("Mixed bottle")]
         return VStack(alignment: .leading, spacing: 14) {
             Text("The day's rhythm").font(.title3.bold())
             Text(day.date, format: .dateTime.weekday(.abbreviated).day().month(.abbreviated))
                 .font(.caption).foregroundStyle(Palette.secondary)
-            Text("Each symbol marks a logged start or observation.").font(.subheadline).foregroundStyle(Palette.secondary)
+            Text("Each symbol marks when a feed started.").font(.subheadline).foregroundStyle(Palette.secondary)
             if entries.isEmpty {
                 Text("Nothing logged on this day.").font(.subheadline).padding(.vertical, 20)
             } else {
@@ -213,7 +212,7 @@ struct TrendsView: View {
                 }
                 .chartXScale(domain: day.date...next)
                 .chartYScale(domain: labels)
-                .chartForegroundStyleScale(domain: labels, range: [breastColors[0], bottleColors[0], bottleColors[1], breastColors[1]])
+                .chartForegroundStyleScale(domain: labels, range: [breastColors[0], bottleColors[0], bottleColors[1], bottleColors[2]])
                 .chartSymbolScale(domain: labels, range: [.circle, .square, .triangle, .diamond])
                 .chartXAxis {
                     AxisMarks(values: .stride(by: .hour, count: 6)) { _ in
@@ -230,16 +229,15 @@ struct TrendsView: View {
                 .chartLegend(.hidden)
                 .frame(height: typeSize.isAccessibilitySize ? 260 : 180)
                 .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                .accessibilityLabel("Feed and hunger timeline")
+                .accessibilityLabel("Feed timeline")
             }
-            Text("Local time · Hunger signs are observations, not feeds.").font(.caption).foregroundStyle(Palette.secondary)
+            Text("Local time").font(.caption).foregroundStyle(Palette.secondary)
         }.chartCard()
     }
 
     private func category(_ entry: HistoryEntry) -> String {
         switch entry {
-        case .feed(let feed): feed.kind.title
-        case .hunger: L10n.text("Hunger signs")
+        case .feed(let feed): feed.title
         case .pump: L10n.text("Pumping")
         }
     }
@@ -251,7 +249,7 @@ struct TrendsView: View {
                     Button { selectedDate = day.date } label: {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(day.date, format: .dateTime.weekday(.abbreviated).day().month(.abbreviated)).font(.headline)
-                            Text(L10n.format("Feeds: %d · Hunger signs: %d", day.feedCount, day.hungerCueCount))
+                            Text(L10n.format("Feeds: %d", day.feedCount))
                             Text(L10n.format("Expressed milk: %d ml", day.volume.expressedML))
                             Text(L10n.format("Formula: %d ml", day.volume.formulaML))
                             Text(L10n.format("Estimated milk: %d ml", day.volume.estimatedBreastML))

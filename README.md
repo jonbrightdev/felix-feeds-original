@@ -1,7 +1,7 @@
 # Felix Feeds
 
-A native iPhone feeding tracker built with SwiftUI. Log bottles, breastfeeding,
-hunger observations and pumping; review history and trends; export backups; and
+A native iPhone feeding tracker built with SwiftUI. Log bottles, breastfeeding
+and pumping; review history and trends; export backups; and
 see feeding information in a Live Activity. English and German are included.
 Requires iOS 17 or later.
 
@@ -11,6 +11,21 @@ production credentials, live sync endpoint, signing certificates or private
 provisioning tool. The app starts empty and works offline. Private sharing needs
 separate service configuration and pairing; cloning this repository does not
 connect a device to an existing family history.
+
+## Mixed bottles
+
+In **Log a bottle → Type → Mixed bottle**, enter the expressed milk and formula
+amounts drunk in ml. The total is calculated automatically and saved as one feed.
+Both amounts must be positive and the combined total must be at most 2,000 ml.
+History shows the split; daily and rolling totals and Trends include each portion
+under its milk type. JSON backups and encrypted feed sharing retain the split.
+CSV appends `expressed_millilitres` and `formula_millilitres` columns while keeping
+the combined amount in `millilitres`.
+
+The split is an optional `formulaMillilitres` field on an expressed bottle whose
+`millilitres` remains the total. Existing records need no migration. Update every
+caregiver's app before using mixed bottles: older versions can read the total but
+show it as expressed milk and discard the split if they edit that record.
 
 ## Get started on a Mac
 
@@ -79,6 +94,24 @@ Keychain or a secret store, never in source, screenshots, issues or logs.
 Do not install a development build over an app containing real history without
 an explicit installation request and a fresh backup. The bundle IDs match the
 original app, so a phone installation can update that app.
+
+Build 26 keeps local Live Activities and foreground encrypted sync enabled in
+free-account builds. Remote updates are off by default, with no push entitlement
+or push-service requests. Save-and-lock uploads get a bounded background allowance.
+Optional encrypted push updates can update the other phone's existing activity
+while its app is closed. These require a supported Apple Developer Program team,
+private service setup, push credentials, and explicit signing configuration; see
+[the deployment and verification requirements](Backend/README.md#encrypted-live-activity-updates).
+Full records still download on opening the app. Apple's eight-hour activity
+lifetime and offline delivery limits apply.
+
+The iOS content compatibility tests run on a simulator with:
+
+```sh
+xcodebuild -project FelixFeeds.xcodeproj -scheme FelixFeeds \
+  -destination 'platform=iOS Simulator,name=YOUR_SIMULATOR' \
+  -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test
+```
 
 The source includes offline merge and encrypted-sync support; the public copy
 is not a turnkey public sharing service. No App Store distribution is configured.

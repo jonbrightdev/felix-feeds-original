@@ -3,6 +3,7 @@ import Observation
 import FeedingCore
 
 @MainActor @Observable final class SharedHistoryController {
+    let activityPush = ActivityPushController()
     private weak var store: FeedingStore?
     @ObservationIgnored private var config: PrivateHistoryConfiguration?
     @ObservationIgnored private let transport = PrivateHistoryTransport()
@@ -15,6 +16,7 @@ import FeedingCore
     private(set) var busy = false
     private(set) var status = "Feeds are saved on this phone. Shared history is not enabled."
     private(set) var lastTransfer: Date?
+    @ObservationIgnored var didSyncFeeds: (() -> Void)?
 
     init(store: FeedingStore) {
         self.store = store; store.sharedHistory = self
@@ -31,6 +33,8 @@ import FeedingCore
             }
             try loadConfiguration()
         } catch { status = error.localizedDescription }
+        activityPush.configure(config, enabled: enabled)
+        activityPush.restoreExistingActivity()
     }
     private func loadConfiguration() throws {
         config = try PrivateHistoryKeychain.load(); configured = config != nil
@@ -42,6 +46,8 @@ import FeedingCore
     func startIfEnabled() {
         do { if config == nil { try loadConfiguration() } }
         catch { status = error.localizedDescription; return }
+        activityPush.configure(config, enabled: enabled)
+        activityPush.retryRegistration()
         guard enabled else { return }
         refresh()
         guard polling == nil else { return }
@@ -55,7 +61,8 @@ import FeedingCore
     }
     func suspend() {
         polling?.cancel(); polling = nil
-        work?.cancel()
+        // Allow the user-initiated transfer to finish within its iOS background
+        // allowance. Cancelling here loses save-then-lock updates.
     }
     func localRecordsChanged() { refresh() }
     func refresh() {
@@ -64,11 +71,18 @@ import FeedingCore
         busy = true
         work = Task { [weak self] in
             guard let self else { return }
-            defer { self.busy = false; self.work = nil }
+            let background = BackgroundExecution(name: "Sync saved feeds") { [weak self] in self?.work?.cancel() }
+            defer { background.end(); self.busy = false; self.work = nil }
+            var conflicts = 0
             repeat {
                 self.requestedAgain = false
                 do { try await self.sync() }
                 catch is CancellationError { return }
+                catch is ActivityHistoryChanged {
+                    conflicts += 1
+                    guard conflicts < 3 else { return }
+                    self.requestedAgain = true
+                }
                 catch {
                     if self.enabled { self.status = L10n.format("Saved on this phone. Sync will retry: %@", error.localizedDescription) }
                     return
@@ -93,6 +107,8 @@ import FeedingCore
     }
     func pauseSyncing() {
         enabled = false; defaults.set(false, forKey: "privateHistoryEnabled")
+        work?.cancel()
+        activityPush.configure(config, enabled: false)
         suspend(); requestedAgain = false
         status = "Syncing is paused on this phone. Your local copy is kept."
     }
@@ -136,13 +152,17 @@ import FeedingCore
             let incoming = try result.records.map { try $0.open(key: config.key) }
             try checkActive(); try store.receiveSharedFeeds(incoming)
         }
+        try checkActive()
+        didSyncFeeds?()
+        try await activityPush.publish(store.ledger, config: config)
+        try checkActive()
         try await syncHungerCues(config: config, store: store)
         var pumpingShared = true
         do { try await syncPumpSessions(config: config, store: store) }
         catch is PumpingSyncUnavailable { pumpingShared = false }
         lastTransfer = Date()
         status = pumpingShared ? "Shared history is up to date. New feeds save offline and sync while the app is open."
-            : "Feeds and observations are up to date. Pumping sessions stay on this phone until the private service is updated."
+            : "Feeds are up to date. Pumping sessions stay on this phone until the private service is updated."
     }
     private func syncHungerCues(config: PrivateHistoryConfiguration, store: FeedingStore) async throws {
         var remote: [HungerCue] = [], revisions: [String: FeedRevision] = [:]

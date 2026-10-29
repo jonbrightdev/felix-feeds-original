@@ -3,7 +3,7 @@ import SwiftUI
 /// Original flat vector artwork; no image downloads, frame rendering or personal photos.
 /// The illustration is decorative. Feeding status is always also shown as text.
 struct BabyIllustration: View {
-    enum Pose: Equatable { case hello, feeding, resting, hungry, bottle }
+    enum Pose: Equatable { case hello, feeding, resting, bottle }
     var pose: Pose = .hello
     var width: CGFloat = 110
     var animated = true
@@ -35,12 +35,8 @@ struct BabyIllustration: View {
                 eye
                 eye
             }.offset(y: -23)
-            if pose == .hungry {
-                Ellipse().fill(Palette.artInk).frame(width: 9, height: 11).offset(y: -5)
-            } else {
-                BabySmile().stroke(Palette.artInk, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                    .frame(width: 13, height: 8).offset(y: -4)
-            }
+            BabySmile().stroke(Palette.artInk, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                .frame(width: 13, height: 8).offset(y: -4)
             if pose == .bottle {
                 bottle.rotationEffect(.degrees(-20)).offset(x: 18, y: 27)
             } else {
@@ -59,7 +55,7 @@ struct BabyIllustration: View {
             guard motionEnabled else { return }
             do {
                 // Brief greeting on appearance, then occasional blinking; the whole baby stays still.
-                if pose == .hello || pose == .hungry {
+                if pose == .hello {
                     withAnimation(.spring(response: 0.4, dampingFraction: 1)) { waving = true }
                     try await Task.sleep(for: .milliseconds(550))
                     withAnimation(.spring(response: 0.4, dampingFraction: 1)) { waving = false }
