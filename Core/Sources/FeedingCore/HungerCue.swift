@@ -1,6 +1,8 @@
 import Foundation
 
 /// An observation, independent of feeds and the active breast timer.
+/// The app no longer logs or shows these. Saved, backed-up and shared records are
+/// still decoded, merged and synced so older backups and paired phones stay compatible.
 public struct HungerCue: Codable, Identifiable, Equatable, Sendable {
     public var id: UUID
     public var recordedAt: Date
@@ -31,18 +33,16 @@ public struct HungerCue: Codable, Identifiable, Equatable, Sendable {
 }
 
 public enum HistoryEntry: Identifiable, Equatable, Sendable {
-    case feed(Feed), hunger(HungerCue), pump(PumpSession)
+    case feed(Feed), pump(PumpSession)
     public var id: String {
         switch self {
         case .feed(let feed): "feed/\(feed.id)"
-        case .hunger(let cue): "hunger/\(cue.id)"
         case .pump(let session): "pump/\(session.id)"
         }
     }
     public var date: Date {
         switch self {
         case .feed(let feed): feed.startedAt
-        case .hunger(let cue): cue.recordedAt
         case .pump(let session): session.pumpedAt
         }
     }
@@ -51,8 +51,7 @@ public enum HistoryEntry: Identifiable, Equatable, Sendable {
 public extension Ledger {
     var visibleHungerCues: [HungerCue] { hungerCues.filter { $0.deletedAt == nil }.sorted { $0.recordedAt > $1.recordedAt } }
     var visibleHistory: [HistoryEntry] {
-        (visibleFeeds.map(HistoryEntry.feed) + visibleHungerCues.map(HistoryEntry.hunger) +
-         visiblePumpSessions.map(HistoryEntry.pump)).sorted {
+        (visibleFeeds.map(HistoryEntry.feed) + visiblePumpSessions.map(HistoryEntry.pump)).sorted {
             $0.date == $1.date ? $0.id < $1.id : $0.date > $1.date
         }
     }

@@ -8,7 +8,7 @@ final class LocalizationTests: XCTestCase {
     func testGermanAndEnglishFormatsPreserveValuesAndPluralGrammar() {
         XCTAssertEqual(L10n.format("%dh %dm", 2, 5, locale: german), "2 Std. 5 Min.")
         XCTAssertEqual(L10n.format("%dm %ds", 3, 7, locale: german), "3 Min. 7 Sek.")
-        XCTAssertEqual(L10n.format("Last 24 hours: %d ml", 125, locale: german), "Letzte 24 Stunden: 125 ml")
+        XCTAssertEqual(L10n.format("Yesterday: %d ml", 125, locale: german), "Gestern: 125 ml")
         XCTAssertEqual(L10n.format("%d feed · %d ml by bottle · Grouped by start date", 1, 60, locale: german),
                        "1 Mahlzeit · 60 ml per Fläschchen · Nach Beginn gruppiert")
         XCTAssertEqual(L10n.format("%d feeds · %d ml by bottle · Grouped by start date", 2, 150, locale: german),

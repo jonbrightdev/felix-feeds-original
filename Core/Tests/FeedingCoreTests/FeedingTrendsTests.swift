@@ -30,7 +30,6 @@ final class FeedingTrendsTests: XCTestCase {
         let days = ledger.feedingDays(count: 7, endingAt: now, calendar: berlin)
         let today = try XCTUnwrap(days.last)
         XCTAssertEqual(today.feedCount, 3)
-        XCTAssertEqual(today.hungerCueCount, 1)
         XCTAssertEqual(today.volume.expressedML, 80)
         XCTAssertEqual(today.volume.formulaML, 60)
         XCTAssertEqual(today.volume.totalML, 140)
@@ -80,14 +79,16 @@ final class FeedingTrendsTests: XCTestCase {
         XCTAssertEqual(days[1].volume.totalML, 160)
     }
 
-    func testObservationOnlyDayAndDifferentTimeZones() throws {
+    func testObservationOnlyDayHasNoRecordsAndDaysFollowTimeZones() throws {
         let now = date("2026-10-16T12:00:00Z")
         var ledger = Ledger()
         ledger.hungerCues = [HungerCue(recordedAt: date("2026-10-15T23:30:00Z"))]
+        XCTAssertFalse(try XCTUnwrap(ledger.feedingDays(count: 1, endingAt: now, calendar: berlin).first).hasRecords)
+        ledger.feeds = [Feed(startedAt: date("2026-10-15T23:30:00Z"), endedAt: date("2026-10-15T23:35:00Z"),
+                             kind: .formula, millilitres: 60)]
         let day = try XCTUnwrap(ledger.feedingDays(count: 1, endingAt: now, calendar: berlin).first)
         XCTAssertTrue(day.hasRecords)
-        XCTAssertEqual(day.feedCount, 0)
-        XCTAssertEqual(day.hungerCueCount, 1)
+        XCTAssertEqual(day.feedCount, 1)
         XCTAssertEqual(day.breastSeconds, 0)
         var utc = berlin; utc.timeZone = TimeZone(secondsFromGMT: 0)!
         XCTAssertFalse(ledger.feedingDays(count: 1, endingAt: now, calendar: utc)[0].hasRecords)

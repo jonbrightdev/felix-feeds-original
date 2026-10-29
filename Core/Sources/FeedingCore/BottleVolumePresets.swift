@@ -2,7 +2,7 @@ import Foundation
 
 public extension Ledger {
     /// Entry shortcuts based on completed bottles started in the last 168 hours.
-    /// Both bottle kinds contribute equally; breastfeeding never implies a volume.
+    /// Pure and mixed bottles contribute their total; breastfeeding never implies a volume.
     func bottleVolumePresets(at now: Date = Date()) -> [Int] {
         let cutoff = now.addingTimeInterval(-7 * 24 * 60 * 60)
         let amounts = feeds.compactMap { feed -> Int? in

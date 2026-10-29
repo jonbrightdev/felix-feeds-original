@@ -6,12 +6,11 @@ public struct FeedingDay: Identifiable, Equatable, Sendable {
     public var id: Date { date }
     public let date: Date
     public let feedCount: Int
-    public let hungerCueCount: Int
     public let volume: VolumeSummary
     public let leftSeconds: TimeInterval
     public let rightSeconds: TimeInterval
     public var breastSeconds: TimeInterval { leftSeconds + rightSeconds }
-    public var hasRecords: Bool { feedCount > 0 || hungerCueCount > 0 }
+    public var hasRecords: Bool { feedCount > 0 }
 }
 
 public extension Ledger {
@@ -24,15 +23,11 @@ public extension Ledger {
         let feedsByDay = Dictionary(grouping: feeds.filter {
             $0.deletedAt == nil && $0.startedAt >= first && $0.startedAt <= now && $0.endedAt <= now
         }) { calendar.startOfDay(for: $0.startedAt) }
-        let cuesByDay = Dictionary(grouping: hungerCues.filter {
-            $0.deletedAt == nil && $0.recordedAt >= first && $0.recordedAt <= now
-        }) { calendar.startOfDay(for: $0.recordedAt) }
         return (0..<count).compactMap { offset in
             guard let date = calendar.date(byAdding: .day, value: offset, to: first) else { return nil }
             let records = feedsByDay[date] ?? []
             let breast = records.filter { $0.kind == .breast }
             return FeedingDay(date: date, feedCount: records.count,
-                              hungerCueCount: cuesByDay[date]?.count ?? 0,
                               volume: VolumeSummary(feeds: records),
                               leftSeconds: breast.reduce(0) { $0 + $1.leftSeconds },
                               rightSeconds: breast.reduce(0) { $0 + $1.rightSeconds })

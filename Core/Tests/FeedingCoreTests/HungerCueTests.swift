@@ -20,7 +20,7 @@ final class HungerCueTests: XCTestCase {
         XCTAssertEqual(ledger.visibleFeeds.count, 1); XCTAssertEqual(VolumeSummary(feeds: ledger.feeds).totalML, 90)
         ledger.active = nil
         XCTAssertEqual(ledger.latestFeedGlance?.startedAt, base)
-        XCTAssertEqual(ledger.visibleHistory.count, 3)
+        XCTAssertEqual(ledger.visibleHistory.count, 1); XCTAssertEqual(ledger.hungerCues.count, 2)
     }
     func testObservationsSyncOfflineWithoutRestampingFeedsAndDeletionDoesNotResurrect() throws {
         var a = Ledger(); try a.upsert(Feed(startedAt: base, endedAt: base, kind: .formula, millilitres: 90))
@@ -66,7 +66,8 @@ final class HungerCueTests: XCTestCase {
         XCTAssertTrue(legacy.hungerCues.isEmpty); XCTAssertEqual(legacy.active, ledger.active)
         var imported = Ledger(); try imported.start(side: .left, now: base.addingTimeInterval(1))
         let active = imported.active
-        XCTAssertEqual(try imported.merge(ledger), 1); XCTAssertEqual(try imported.merge(ledger), 0)
+        // Legacy observations are kept on import but are not counted as visible entries.
+        XCTAssertEqual(try imported.merge(ledger), 0); XCTAssertEqual(try imported.merge(ledger), 0)
         XCTAssertEqual(imported.active, active); XCTAssertEqual(imported.hungerCues, ledger.hungerCues)
     }
     func testEncryptionRejectsWrongKeysTamperingAndCrossCollectionSubstitution() throws {
@@ -89,18 +90,16 @@ final class HungerCueTests: XCTestCase {
         XCTAssertEqual(ledger, before)
         ledger.hungerCues.append(ledger.hungerCues[0]); XCTAssertThrowsError(try ledger.validate())
     }
-    func testTimelineAndCSVKeepObservationsSeparateFromMeasuredFeeds() throws {
+    func testStoredObservationsStayOutOfHistoryCSVAndTotals() throws {
         var ledger = Ledger()
         try ledger.upsert(Feed(startedAt: base, endedAt: base, kind: .formula, millilitres: 90))
-        let cue = HungerCue(recordedAt: base.addingTimeInterval(60), notes: "=not a formula")
-        try ledger.upsert(cue)
-        XCTAssertEqual(ledger.visibleHistory.first, .hunger(cue))
-        XCTAssertEqual(ledger.history(on: base).count, 2)
-        let csv = ledger.csv()
-        XCTAssertTrue(csv.contains("\"Hunger signs\",\"\",\"\",\"\",\"'=not a formula\""))
-        XCTAssertEqual(ledger.feeds(on: base).count, 1)
+        try ledger.upsert(HungerCue(recordedAt: base.addingTimeInterval(60), notes: "=not a formula"))
+        XCTAssertEqual(ledger.visibleHistory.count, 1)
+        XCTAssertEqual(ledger.history(on: base).count, 1)
+        XCTAssertFalse(ledger.csv().contains("Hunger signs")); XCTAssertFalse(ledger.csv().contains("not a formula"))
+        var utc = Calendar(identifier: .gregorian); utc.timeZone = TimeZone(secondsFromGMT: 0)!
+        XCTAssertEqual(ledger.feedingDays(count: 1, endingAt: base.addingTimeInterval(100), calendar: utc)[0].feedCount, 1)
         XCTAssertEqual(ledger.volumeInLast24Hours(at: base.addingTimeInterval(100)).totalML, 90)
-        ledger.setHungerCueDeleted(cue.id, at: base.addingTimeInterval(120))
-        XCTAssertEqual(ledger.visibleHistory.count, 1); XCTAssertFalse(ledger.csv().contains("Hunger signs"))
+        XCTAssertEqual(ledger.hungerCues.count, 1)
     }
 }

@@ -34,6 +34,9 @@ public struct Feed: Codable, Identifiable, Equatable, Sendable {
     public var leftSeconds: TimeInterval
     public var rightSeconds: TimeInterval
     public var millilitres: Int?
+    // Mixed bottles retain the existing expressed kind and total volume so older
+    // clients can still read the record. This optional field records its formula portion.
+    public var formulaMillilitres: Int?
     public var estimatedMillilitres: Int?
     public var notes: String
     public var deletedAt: Date?
@@ -41,14 +44,19 @@ public struct Feed: Codable, Identifiable, Equatable, Sendable {
 
     public init(id: UUID = UUID(), startedAt: Date, endedAt: Date, kind: FeedKind,
                 leftSeconds: TimeInterval = 0, rightSeconds: TimeInterval = 0,
-                millilitres: Int? = nil, estimatedMillilitres: Int? = nil, notes: String = "", deletedAt: Date? = nil,
+                millilitres: Int? = nil, formulaMillilitres: Int? = nil, estimatedMillilitres: Int? = nil, notes: String = "", deletedAt: Date? = nil,
                 revision: FeedRevision? = nil) {
         self.id = id; self.startedAt = startedAt; self.endedAt = endedAt
         self.kind = kind; self.leftSeconds = leftSeconds; self.rightSeconds = rightSeconds
         self.millilitres = millilitres; self.estimatedMillilitres = estimatedMillilitres; self.notes = notes; self.deletedAt = deletedAt
+        self.formulaMillilitres = formulaMillilitres
         self.revision = revision
     }
     public var duration: TimeInterval { leftSeconds + rightSeconds }
+    public var isMixedBottle: Bool { kind == .expressed && formulaMillilitres != nil }
+    public var title: String { isMixedBottle ? L10n.text("Mixed bottle") : kind.title }
+    public var expressedML: Int { kind == .expressed ? (millilitres ?? 0) - (formulaMillilitres ?? 0) : 0 }
+    public var formulaML: Int { kind == .formula ? (millilitres ?? 0) : (formulaMillilitres ?? 0) }
     public var sideLabel: String {
         if leftSeconds > 0 && rightSeconds > 0 { return L10n.text("Both sides") }
         return L10n.text(leftSeconds > 0 ? "Left side" : "Right side")
@@ -60,6 +68,12 @@ public struct Feed: Codable, Identifiable, Equatable, Sendable {
         guard leftSeconds.isFinite, rightSeconds.isFinite, leftSeconds >= 0, rightSeconds >= 0,
               duration <= endedAt.timeIntervalSince(startedAt) + 1 else {
             throw FeedingError.invalid("Feeding time cannot exceed the time between the start and end.")
+        }
+        if let formulaMillilitres {
+            guard kind == .expressed, let millilitres, (1...2000).contains(millilitres),
+                  formulaMillilitres > 0, formulaMillilitres < millilitres else {
+                throw FeedingError.invalid("Enter both milk amounts above 0 ml, with a total no more than 2,000 ml.")
+            }
         }
         if kind == .breast {
             guard duration > 0, millilitres == nil else {
@@ -121,6 +135,7 @@ public struct FeedGlance: Equatable, Sendable {
     public let isFeeding: Bool
     public let isPaused: Bool
     public let side: Side?
+    public var isMixedBottle: Bool = false
 }
 
 public struct VolumeSummary: Equatable, Sendable {
@@ -133,8 +148,8 @@ public struct VolumeSummary: Equatable, Sendable {
 
     public init(feeds: [Feed]) {
         let bottles = feeds.filter { $0.deletedAt == nil && $0.kind != .breast }
-        expressedML = bottles.filter { $0.kind == .expressed }.reduce(0) { $0 + ($1.millilitres ?? 0) }
-        formulaML = bottles.filter { $0.kind == .formula }.reduce(0) { $0 + ($1.millilitres ?? 0) }
+        expressedML = bottles.reduce(0) { $0 + $1.expressedML }
+        formulaML = bottles.reduce(0) { $0 + $1.formulaML }
         bottleCount = bottles.count
         estimatedBreastML = feeds.filter { $0.deletedAt == nil && $0.kind == .breast }
             .reduce(0) { $0 + ($1.estimatedMillilitres ?? 0) }
@@ -160,7 +175,9 @@ public struct Ledger: Codable, Equatable, Sendable {
         sharedHistoryID = try values.decodeIfPresent(String.self, forKey: .sharedHistoryID)
     }
     public var visibleFeeds: [Feed] {
-        feeds.filter { $0.deletedAt == nil }.sorted { $0.startedAt > $1.startedAt }
+        feeds.filter { $0.deletedAt == nil }.sorted {
+            $0.startedAt == $1.startedAt ? $0.id.uuidString > $1.id.uuidString : $0.startedAt > $1.startedAt
+        }
     }
     public var latestFeedGlance: FeedGlance? {
         let last = visibleFeeds.first
@@ -171,7 +188,8 @@ public struct Ledger: Codable, Equatable, Sendable {
         }
         guard let last else { return nil }
         return FeedGlance(id: last.id, startedAt: last.startedAt, kind: last.kind,
-                          millilitres: last.millilitres, isFeeding: false, isPaused: false, side: nil)
+                          millilitres: last.millilitres, isFeeding: false, isPaused: false, side: nil,
+                          isMixedBottle: last.isMixedBottle)
     }
     public func validate(now: Date = Date()) throws {
         guard version == 1 else { throw FeedingError.invalid("This backup uses an unsupported data version.") }
@@ -222,11 +240,12 @@ public struct Ledger: Codable, Equatable, Sendable {
         feeds.append(contentsOf: additions)
         let cueIDs = Set(hungerCues.map(\.id))
         let cueAdditions = other.hungerCues.filter { !cueIDs.contains($0.id) }
+        // Hidden legacy observations are kept but not counted as visible entries.
         hungerCues.append(contentsOf: cueAdditions)
         let pumpIDs = Set(pumpSessions.map(\.id))
         let pumpAdditions = other.pumpSessions.filter { !pumpIDs.contains($0.id) }
         pumpSessions.append(contentsOf: pumpAdditions)
-        return additions.count + cueAdditions.count + pumpAdditions.count
+        return additions.count + pumpAdditions.count
     }
     public func feeds(on day: Date, calendar: Calendar = .current) -> [Feed] {
         visibleFeeds.filter { calendar.isDate($0.startedAt, inSameDayAs: day) }
@@ -247,17 +266,16 @@ public struct Ledger: Codable, Equatable, Sendable {
             let cells: [String]
             switch entry {
             case .feed(let feed):
-                cells = [iso.string(from: feed.startedAt), iso.string(from: feed.endedAt), (feed.kind == .breast ? "Breast" : feed.kind == .expressed ? "Expressed milk" : "Formula"),
-                         String(Int(feed.leftSeconds)), String(Int(feed.rightSeconds)), feed.millilitres.map(String.init) ?? "", feed.notes, feed.estimatedMillilitres.map(String.init) ?? ""]
-            case .hunger(let cue):
-                cells = [iso.string(from: cue.recordedAt), "", "Hunger signs", "", "", "", cue.notes, ""]
+                cells = [iso.string(from: feed.startedAt), iso.string(from: feed.endedAt), (feed.isMixedBottle ? "Mixed bottle" : feed.kind == .breast ? "Breast" : feed.kind == .expressed ? "Expressed milk" : "Formula"),
+                         String(Int(feed.leftSeconds)), String(Int(feed.rightSeconds)), feed.millilitres.map(String.init) ?? "", feed.notes, feed.estimatedMillilitres.map(String.init) ?? "",
+                         feed.kind == .breast ? "" : String(feed.expressedML), feed.kind == .breast ? "" : String(feed.formulaML)]
             case .pump(let session):
                 // Pumped output shares the millilitres column; the type keeps it apart from bottle intake.
-                cells = [iso.string(from: session.pumpedAt), "", "Pumping", "", "", String(session.millilitres), session.notes, ""]
+                cells = [iso.string(from: session.pumpedAt), "", "Pumping", "", "", String(session.millilitres), session.notes, "", "", ""]
             }
             return cells.map(quote).joined(separator: ",")
         }
-        return (["start_utc,end_utc,type,left_seconds,right_seconds,millilitres,notes,estimated_millilitres"] + rows).joined(separator: "\r\n")
+        return (["start_utc,end_utc,type,left_seconds,right_seconds,millilitres,notes,estimated_millilitres,expressed_millilitres,formula_millilitres"] + rows).joined(separator: "\r\n")
     }
 }
 
