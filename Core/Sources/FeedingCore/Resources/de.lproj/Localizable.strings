@@ -311,6 +311,10 @@
 "SINCE LAST FEED" = "SEIT LETZTER MAHLZEIT";
 "MILK TODAY" = "MILCH HEUTE";
 "Yesterday: %d ml" = "Gestern: %d ml";
+"Today" = "Heute";
+"Yesterday" = "Gestern";
+"Milk through the day" = "Milch im Tagesverlauf";
+"Today so far %d ml. By this time yesterday %d ml." = "Heute bisher %d ml. Gestern um diese Zeit %d ml.";
 "Mixed bottle" = "Gemischtes Fläschchen";
 "Expressed milk (ml)" = "Abgepumpte Milch (ml)";
 "Formula (ml)" = "Säuglingsnahrung (ml)";

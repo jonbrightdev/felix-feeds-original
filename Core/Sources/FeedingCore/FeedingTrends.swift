@@ -34,3 +34,30 @@ public extension Ledger {
         }
     }
 }
+
+/// One step in the running milk total for a calendar day.
+public struct MilkProgressPoint: Equatable, Sendable {
+    public let time: Date
+    public let totalML: Int
+    public init(time: Date, totalML: Int) { self.time = time; self.totalML = totalML }
+}
+
+extension Ledger {
+    /// Starts at 0 ml at local midnight and steps up at each feed's start, so the
+    /// final value matches that day's total. Stops at `end`, or at the next midnight.
+    public func milkProgress(on day: Date, until end: Date? = nil, calendar: Calendar = .current) -> [MilkProgressPoint] {
+        let start = calendar.startOfDay(for: day)
+        let dayEnd = calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86_400)
+        let last = max(start, min(end ?? dayEnd, dayEnd))
+        var total = 0
+        var points = [MilkProgressPoint(time: start, totalML: 0)]
+        for feed in feeds(on: day, calendar: calendar).reversed() where feed.startedAt <= last {
+            let millilitres = VolumeSummary(feeds: [feed]).totalML
+            guard millilitres > 0 else { continue }
+            total += millilitres
+            points.append(MilkProgressPoint(time: feed.startedAt, totalML: total))
+        }
+        points.append(MilkProgressPoint(time: last, totalML: total))
+        return points
+    }
+}

@@ -303,18 +303,31 @@ struct FeedView: View {
     // Both days follow the phone's calendar, matching how history groups feeds.
     private func milkCard(now: Date) -> some View {
         let calendar = Calendar.current
-        let today = VolumeSummary(feeds: store.ledger.feeds(on: now, calendar: calendar))
-        let yesterday = calendar.date(byAdding: .day, value: -1, to: now)
-            .map { VolumeSummary(feeds: store.ledger.feeds(on: $0, calendar: calendar)) }
-        return VStack(alignment: .leading, spacing: 6) {
-            Text("MILK TODAY").font(.caption.weight(.semibold)).tracking(1).foregroundStyle(Palette.secondary)
-            Text("\(today.totalML) ml")
-                .font(.system(.title, design: .rounded, weight: .semibold)).monospacedDigit()
-                .lineLimit(1).minimumScaleFactor(typeSize.isAccessibilitySize ? 1 : 0.65)
-            Text(L10n.format("Yesterday: %d ml", yesterday?.totalML ?? 0)).font(.subheadline).foregroundStyle(Palette.secondary)
+        let ledger = store.ledger
+        let sameTimeYesterday = calendar.date(byAdding: .day, value: -1, to: now) ?? now.addingTimeInterval(-86_400)
+        let todayProgress = ledger.milkProgress(on: now, until: now, calendar: calendar)
+        // Wall-clock shift keeps yesterday aligned with today across daylight-saving changes.
+        let yesterdayProgress = ledger.milkProgress(on: sameTimeYesterday, calendar: calendar).map {
+            MilkProgressPoint(time: calendar.date(byAdding: .day, value: 1, to: $0.time) ?? $0.time, totalML: $0.totalML)
+        }
+        let todayML = todayProgress.last?.totalML ?? 0
+        let yesterdayML = yesterdayProgress.last?.totalML ?? 0
+        let dayStart = calendar.startOfDay(for: now)
+        let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart.addingTimeInterval(86_400)
+        return VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("MILK TODAY").font(.caption.weight(.semibold)).tracking(1).foregroundStyle(Palette.secondary)
+                Text("\(todayML) ml")
+                    .font(.system(.title, design: .rounded, weight: .semibold)).monospacedDigit()
+                    .lineLimit(1).minimumScaleFactor(typeSize.isAccessibilitySize ? 1 : 0.65)
+                Text(L10n.format("Yesterday: %d ml", yesterdayML)).font(.subheadline).foregroundStyle(Palette.secondary)
+            }.accessibilityElement(children: .combine).accessibilityIdentifier("volume-summary")
+            if todayML > 0 || yesterdayML > 0 {
+                MilkTodayChart(today: todayProgress, yesterday: yesterdayProgress, day: dayStart...dayEnd,
+                               yesterdayByNow: ledger.milkProgress(on: sameTimeYesterday, until: sameTimeYesterday, calendar: calendar).last?.totalML ?? 0)
+            }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(22)
             .background(Palette.card, in: RoundedRectangle(cornerRadius: 30))
-            .accessibilityElement(children: .combine).accessibilityIdentifier("volume-summary")
     }
 
     private func activeCard(_ active: ActiveFeed) -> some View {

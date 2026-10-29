@@ -93,4 +93,29 @@ final class FeedingTrendsTests: XCTestCase {
         var utc = berlin; utc.timeZone = TimeZone(secondsFromGMT: 0)!
         XCTAssertFalse(ledger.feedingDays(count: 1, endingAt: now, calendar: utc)[0].hasRecords)
     }
+
+    func testMilkProgressStepsThroughTheLocalDayAndStopsAtTheGivenTime() {
+        var ledger = Ledger()
+        let breast = date("2026-03-10T09:00:00Z")
+        ledger.feeds = [
+            bottle(date("2026-03-09T22:30:00Z"), ml: 50),               // 23:30 the previous Berlin day
+            bottle(date("2026-03-10T01:00:00Z"), ml: 120),
+            Feed(startedAt: breast, endedAt: breast.addingTimeInterval(600), kind: .breast,
+                 leftSeconds: 600, estimatedMillilitres: 30),
+            Feed(startedAt: breast.addingTimeInterval(3600), endedAt: breast.addingTimeInterval(4200), kind: .breast, leftSeconds: 600),
+            bottle(date("2026-03-10T12:00:00Z"), ml: 90, kind: .formula),
+            Feed(startedAt: date("2026-03-10T13:00:00Z"), endedAt: date("2026-03-10T13:01:00Z"), kind: .expressed,
+                 millilitres: 70, deletedAt: date("2026-03-10T13:05:00Z")),
+            bottle(date("2026-03-10T20:00:00Z"), ml: 100),
+        ]
+        let now = date("2026-03-10T15:00:00Z")
+        let points = ledger.milkProgress(on: now, until: now, calendar: berlin)
+        XCTAssertEqual(points.map(\.time), [date("2026-03-09T23:00:00Z"), date("2026-03-10T01:00:00Z"), breast,
+                                            date("2026-03-10T12:00:00Z"), now])
+        XCTAssertEqual(points.map(\.totalML), [0, 120, 150, 240, 240])
+
+        let fullDay = ledger.milkProgress(on: now, calendar: berlin)
+        XCTAssertEqual(fullDay.last, MilkProgressPoint(time: date("2026-03-10T23:00:00Z"), totalML: 340))
+        XCTAssertEqual(fullDay.last?.totalML, VolumeSummary(feeds: ledger.feeds(on: now, calendar: berlin)).totalML)
+    }
 }

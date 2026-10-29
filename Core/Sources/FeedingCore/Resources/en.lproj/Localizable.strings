@@ -311,6 +311,10 @@
 "SINCE LAST FEED" = "SINCE LAST FEED";
 "MILK TODAY" = "MILK TODAY";
 "Yesterday: %d ml" = "Yesterday: %d ml";
+"Today" = "Today";
+"Yesterday" = "Yesterday";
+"Milk through the day" = "Milk through the day";
+"Today so far %d ml. By this time yesterday %d ml." = "Today so far %d ml. By this time yesterday %d ml.";
 "Mixed bottle" = "Mixed bottle";
 "Expressed milk (ml)" = "Expressed milk (ml)";
 "Formula (ml)" = "Formula (ml)";
