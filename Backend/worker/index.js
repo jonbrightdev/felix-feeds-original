@@ -1,23 +1,26 @@
+import { handleActivity, deliverActivities } from './live-activity.js';
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MAX_BODY = 2_000_000;
 const PAGE_SIZE = 40;
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
   status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' },
 });
-export async function deviceAuthorized(request, env) {
+async function deviceSlot(request, env) {
   const token = request.headers.get('Authorization')?.match(/^Bearer ([a-f0-9]{64})$/)?.[1];
-  if (!token) return false;
+  if (!token) return null;
   const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token)))].map(x => x.toString(16).padStart(2, '0')).join('');
   // Compare every byte and both keys; avoid early-exit string comparison.
-  let accepted = 0;
-  for (const expected of [env.DEVICE_B_KEY_HASH, env.DEVICE_A_KEY_HASH]) {
+  let accepted = null;
+  for (const [slot, expected] of [['b', env.DEVICE_B_KEY_HASH], ['a', env.DEVICE_A_KEY_HASH]]) {
     let difference = 0;
     if (typeof expected !== 'string' || expected.length !== 64) continue;
     for (let i = 0; i < 64; i++) difference |= digest.charCodeAt(i) ^ expected.charCodeAt(i);
-    accepted |= Number(difference === 0);
+    if (difference === 0) accepted = slot;
   }
-  return accepted !== 0;
+  return accepted;
 }
+export async function deviceAuthorized(request, env) { return (await deviceSlot(request, env)) !== null; }
 function validatePacket(p) {
   if (!p || !UUID.test(p.id) || !UUID.test(p.device) || typeof p.counter !== 'string' || !/^[1-9][0-9]{0,18}$/.test(p.counter)
     || BigInt(p.counter) > 9223372036854775807n || typeof p.ciphertext !== 'string'
@@ -44,10 +47,12 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === '/' && request.method === 'GET') return new Response('Private family feeding sync. Open Felix Feeds on a paired iPhone.', { headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
     const table = ({ '/api/sync': 'packets', '/api/observations': 'observation_packets', '/api/pumping': 'pumping_packets' })[url.pathname];
-    if (!table) return json({ error: 'Not found' }, 404);
-    if (!(await deviceAuthorized(request, env))) return json({ error: 'Unauthorized' }, 401);
+    if (!table && url.pathname !== '/api/live-activity') return json({ error: 'Not found' }, 404);
+    const slot = await deviceSlot(request, env);
+    if (!slot) return json({ error: 'Unauthorized' }, 401);
     if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
     if (!(request.headers.get('Content-Type') ?? '').startsWith('application/json')) return json({ error: 'JSON required' }, 415);
+    if (url.pathname === '/api/live-activity') return handleActivity(request, env, slot, readBounded);
     let body, records;
     try {
       body = await readBounded(request);
@@ -66,4 +71,5 @@ export default {
       return json({ records: page, nextCursor: results.length > PAGE_SIZE ? page.at(-1).id : null });
     } catch { return json({ error: 'Sync temporarily unavailable' }, 503); }
   },
+  async scheduled(_event, env) { await deliverActivities(env); },
 };
