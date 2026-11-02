@@ -196,7 +196,7 @@
 "This phone's records belong to a different shared history." = "This phone's records belong to a different shared history.";
 "This unfinished feed will not be added to history." = "This unfinished feed will not be added to history.";
 "Time since feed started" = "Time since feed started";
-"Time since last feed is measured from the start of the most recent feed. Daily totals use this phone’s local calendar and group feeds by their start date." = "Time since last feed is measured from the start of the most recent feed. Daily totals use this phone’s local calendar and group feeds by their start date.";
+"Time since last feed is measured from the start of the most recent regular feed. Top-ups do not restart it and still count toward daily totals. Daily totals use this phone’s local calendar and group feeds by their start date." = "Time since last feed is measured from the start of the most recent regular feed. Top-ups do not restart it and still count toward daily totals. Daily totals use this phone’s local calendar and group feeds by their start date.";
 "Timer options" = "Timer options";
 "Type" = "Type";
 "Undo" = "Undo";
@@ -360,3 +360,37 @@
 "feed" = "feed";
 
 "Choose an earlier start or a shorter duration so the feed finishes in the past." = "Choose an earlier start or a shorter duration so the feed finishes in the past.";
+"Top-up" = "Top-up";
+"Counts toward milk intake without restarting the time since last feed." = "Counts toward milk intake without restarting the time since last feed.";
+
+"Welcome to\nFelix Feeds" = "Welcome to\nFelix Feeds";
+"Keep track of bottles, breastfeeding and pumping, one session at a time." = "Keep track of bottles, breastfeeding and pumping, one session at a time.";
+"What’s your\nbaby’s name?" = "What’s your\nbaby’s name?";
+"A first name or nickname is perfect. You can change it in Settings." = "A first name or nickname is perfect. You can change it in Settings.";
+"Baby’s name (optional)" = "Baby’s name (optional)";
+"Baby’s name" = "Baby’s name";
+"First name or nickname" = "First name or nickname";
+"your baby" = "your baby";
+"A first session\nfor %@" = "A first session\nfor %@";
+"Choose what you’d like to record. You can add an earlier session, too." = "Choose what you’d like to record. You can add an earlier session, too.";
+"Formula or expressed milk" = "Formula or expressed milk";
+"Start a timer or add a feed" = "Start a timer or add a feed";
+"Record milk expressed" = "Record milk expressed";
+"First pumping session saved" = "First pumping session saved";
+"First feed saved" = "First feed saved";
+"%@’s history has begun. You can edit this session at any time." = "%@’s history has begun. You can edit this session at any time.";
+"Get started" = "Get started";
+"Explore first" = "Explore first";
+"Continue" = "Continue";
+"Skip for now" = "Skip for now";
+"I’ll start later" = "I’ll start later";
+"Go to %@’s overview" = "Go to %@’s overview";
+"Made for your baby" = "Made for your baby";
+"Made for %@" = "Made for %@";
+"Add a name" = "Add a name";
+"Enter the expressed milk and formula actually drunk. This is saved as one bottle." = "Enter the expressed milk and formula actually drunk. This is saved as one bottle.";
+"Enter how much your baby actually drank, rather than the amount prepared." = "Enter how much your baby actually drank, rather than the amount prepared.";
+"Add both sides together. Pumped milk is not counted as milk drunk; log a bottle when your baby drinks it." = "Add both sides together. Pumped milk is not counted as milk drunk; log a bottle when your baby drinks it.";
+
+"Repeat" = "Repeat";
+"Opens a new entry with these details for review." = "Opens a new entry with these details for review.";

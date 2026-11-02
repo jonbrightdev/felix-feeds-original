@@ -126,7 +126,7 @@ import UniformTypeIdentifiers
     }
     var body: some Scene {
         WindowGroup {
-            RootView()
+            AppEntryView()
                 .environment(store)
                 .environment(activities)
                 .environment(sharing)
@@ -186,16 +186,21 @@ enum TimeText {
 }
 
 struct FeedView: View {
+    @AppStorage("babyName") private var babyName = ""
     @Environment(FeedingStore.self) private var store
     @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .title) private var headerSize = 38
+    @ScaledMetric(relativeTo: .largeTitle) private var timerSize = 54
     @State private var showEditor = false
     @State private var editing: Feed?
     @State private var editingPump: PumpSession?
     @State private var confirmDiscard = false
     @State private var finishingFeed: Feed?
+    @State private var repeating: HistoryEntry?
 
     var body: some View {
-        NavigationStack {
+        let recentHistory = Array(store.ledger.visibleHistory.prefix(4))
+        return NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     feedHeader
@@ -209,8 +214,8 @@ struct FeedView: View {
                         milkCard(now: context.date)
                     }
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Recent history").font(.title3.bold())
-                        if store.ledger.visibleHistory.isEmpty {
+                        Text("Recent history").font(.title3.bold()).accessibilityAddTraits(.isHeader)
+                        if recentHistory.isEmpty {
                             VStack(spacing: 10) {
                                 BabyIllustration(pose: .resting, width: 78, animated: false)
                                 Text("A little rhythm, one feed at a time.").font(.headline).multilineTextAlignment(.center)
@@ -219,15 +224,31 @@ struct FeedView: View {
                             }.frame(maxWidth: .infinity).padding(24).background(Palette.card, in: RoundedRectangle(cornerRadius: 22))
                         } else {
                             VStack(spacing: 0) {
-                                ForEach(Array(store.ledger.visibleHistory.prefix(4))) { entry in
-                                    Button {
-                                        switch entry {
-                                        case .feed(let feed): editing = feed
-                                        case .pump(let session): editingPump = session
+                                ForEach(recentHistory) { entry in
+                                    VStack(alignment: .leading, spacing: 0) {
+                                        Button {
+                                            switch entry {
+                                            case .feed(let feed): editing = feed
+                                            case .pump(let session): editingPump = session
+                                            }
+                                        } label: { HistoryEntryRow(entry: entry) }
+                                            .buttonStyle(.plain)
+                                        Button {
+                                            repeating = entry.repeated(at: .now)
+                                        } label: {
+                                            Label("Repeat", systemImage: "arrow.clockwise")
+                                                .font(.subheadline.weight(.semibold))
+                                                .frame(minHeight: 44)
+                                                .padding(.horizontal, 12)
                                         }
-                                    } label: { HistoryEntryRow(entry: entry) }
-                                        .buttonStyle(.plain)
-                                    if entry.id != store.ledger.visibleHistory.prefix(4).last?.id { Divider().padding(.leading, 58) }
+                                        .buttonStyle(.bordered)
+                                        .disabled(store.loadFailed)
+                                        .accessibilityHint("Opens a new entry with these details for review.")
+                                        .accessibilityIdentifier("repeat-\(entry.id)")
+                                        .padding(.leading, typeSize.isAccessibilitySize ? 0 : 54)
+                                        .padding(.bottom, 12)
+                                    }
+                                    if entry.id != recentHistory.last?.id { Divider().padding(.leading, typeSize.isAccessibilitySize ? 0 : 58) }
                                 }
                             }.padding(.horizontal, 16).background(Palette.card, in: RoundedRectangle(cornerRadius: 22))
                         }
@@ -240,6 +261,12 @@ struct FeedView: View {
             .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showEditor) { FeedEditor() }
             .sheet(item: $editing) { FeedEditor(feed: $0) }
+            .sheet(item: $repeating) { entry in
+                switch entry {
+                case .feed(let feed): FeedEditor(repeating: feed)
+                case .pump(let session): PumpingEditor(repeating: session)
+                }
+            }
             .sheet(item: $finishingFeed) { FeedEditor(feed: $0, finishingTimer: true) }
             .sheet(item: $editingPump) { PumpingEditor(session: $0) }
             .confirmationDialog("Discard this timer?", isPresented: $confirmDiscard, titleVisibility: .visible) {
@@ -252,7 +279,8 @@ struct FeedView: View {
     private var feedHeader: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
             VStack(alignment: .leading, spacing: 5) {
-                Text("Felix").font(.system(size: 38, weight: .bold, design: .rounded))
+                Text(babyName.isEmpty ? L10n.text("Baby") : babyName).font(.system(size: headerSize, weight: .bold, design: .rounded))
+                    .accessibilityAddTraits(.isHeader)
                 Text(context.date, format: .dateTime.weekday(.wide).day().month(.wide))
                     .font(.subheadline).foregroundStyle(Palette.secondary)
             }
@@ -260,10 +288,11 @@ struct FeedView: View {
     }
 
     private var readyCard: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        let lastFeed = store.ledger.latestTimerFeed
+        return VStack(alignment: .leading, spacing: 20) {
             HStack(alignment: .center, spacing: 8) {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                    sinceLastFeed(now: context.date)
+                    sinceLastFeed(last: lastFeed, now: context.date)
                 }
                 if !typeSize.isAccessibilitySize {
                     Spacer(minLength: 0)
@@ -284,10 +313,10 @@ struct FeedView: View {
         }.buttonStyle(SoftPressStyle()).disabled(store.loadFailed).accessibilityIdentifier("log-session")
     }
 
-    private func sinceLastFeed(now: Date) -> some View {
+    private func sinceLastFeed(last: Feed?, now: Date) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("SINCE LAST FEED").font(.caption.weight(.semibold)).tracking(1).foregroundStyle(Palette.secondary)
-            if let last = store.ledger.visibleFeeds.first {
+            if let last {
                 Text(TimeText.duration(now.timeIntervalSince(last.startedAt)))
                     .font(.system(.title, design: .rounded, weight: .medium)).monospacedDigit()
                     .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
@@ -319,7 +348,7 @@ struct FeedView: View {
                 Text("MILK TODAY").font(.caption.weight(.semibold)).tracking(1).foregroundStyle(Palette.secondary)
                 Text("\(todayML) ml")
                     .font(.system(.title, design: .rounded, weight: .semibold)).monospacedDigit()
-                    .lineLimit(1).minimumScaleFactor(typeSize.isAccessibilitySize ? 1 : 0.65)
+                    .lineLimit(typeSize.isAccessibilitySize ? nil : 1).minimumScaleFactor(typeSize.isAccessibilitySize ? 1 : 0.65)
                 Text(L10n.format("Yesterday: %d ml", yesterdayML)).font(.subheadline).foregroundStyle(Palette.secondary)
             }.accessibilityElement(children: .combine).accessibilityIdentifier("volume-summary")
             if todayML > 0 || yesterdayML > 0 {
@@ -353,15 +382,19 @@ struct FeedView: View {
                 let right = active.seconds(for: .right, at: context.date)
                 VStack(alignment: .leading, spacing: 16) {
                     Text(TimeText.clock(left + right))
-                        .font(.system(size: 54, weight: .medium, design: .rounded)).monospacedDigit()
+                        .font(.system(size: timerSize, weight: .medium, design: .rounded)).monospacedDigit()
                         .minimumScaleFactor(0.5).lineLimit(1).accessibilityLabel(L10n.format("Feeding time %@", TimeText.duration(left + right)))
                 }
             }
             Text(L10n.format("Started %@", active.startedAt.formatted(date: .omitted, time: .shortened)))
                 .font(.caption).foregroundStyle(Palette.secondary)
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) { timerButtons(active) }
+            if typeSize.isAccessibilitySize {
                 VStack(spacing: 12) { timerButtons(active) }
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) { timerButtons(active) }
+                    VStack(spacing: 12) { timerButtons(active) }
+                }
             }
             Text("Your timer continues when the phone is locked.")
                 .font(.caption).foregroundStyle(Palette.secondary)
@@ -384,20 +417,28 @@ struct FeedView: View {
                 finishingFeed = paused.completed(at: now)
             }
         } label: {
-            Label("Finish feed", systemImage: "checkmark").font(.headline).fixedSize().frame(maxWidth: .infinity, minHeight: 44)
+            Label("Finish feed", systemImage: "checkmark").font(.headline).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, minHeight: 44)
         }.buttonStyle(.borderedProminent).tint(Palette.button).foregroundStyle(.white).accessibilityIdentifier("finish-feed")
     }
 }
 
 struct FeedRow: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     let feed: Feed
     var body: some View {
         HStack(spacing: 14) {
-            Image(systemName: feed.kind == .breast ? "heart" : "drop")
-                .foregroundStyle(Palette.green).frame(width: 40, height: 44)
-                .background(Palette.sage, in: RoundedRectangle(cornerRadius: 14))
+            if !typeSize.isAccessibilitySize {
+                Image(systemName: feed.kind == .breast ? "heart" : "drop")
+                    .foregroundStyle(Palette.green).frame(width: 40, height: 44)
+                    .background(Palette.sage, in: RoundedRectangle(cornerRadius: 14))
+                    .accessibilityHidden(true)
+            }
             VStack(alignment: .leading, spacing: 5) {
                 Text(feed.title).font(.headline)
+                if typeSize.isAccessibilitySize { timestamp }
+                if feed.isTopUp == true {
+                    Text("Top-up").font(.subheadline).foregroundStyle(Palette.secondary)
+                }
                 Text(feed.kind == .breast ? TimeText.duration(feed.duration) : "\(feed.millilitres ?? 0) ml")
                     .font(.subheadline).foregroundStyle(Palette.secondary)
                 if feed.isMixedBottle {
@@ -411,9 +452,13 @@ struct FeedRow: View {
                 if !feed.notes.isEmpty { Text(feed.notes).font(.caption).foregroundStyle(Palette.secondary).lineLimit(2) }
             }
             Spacer(minLength: 8)
-            Text(feed.startedAt, format: .dateTime.hour().minute()).font(.subheadline).foregroundStyle(Palette.secondary)
-            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+            if !typeSize.isAccessibilitySize { timestamp.fixedSize() }
+            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary).accessibilityHidden(true)
         }.padding(.vertical, 16).contentShape(Rectangle()).accessibilityElement(children: .combine)
+    }
+    private var timestamp: some View {
+        Text(feed.startedAt, format: .dateTime.hour().minute())
+            .font(.subheadline).monospacedDigit().foregroundStyle(Palette.secondary)
     }
 }
 
@@ -432,11 +477,11 @@ struct HistoryView: View {
     @State private var editing: Feed?
     @State private var editingPump: PumpSession?
     @State private var adding = false
-    private var days: [Date] {
-        Set(store.ledger.visibleHistory.map { Calendar.current.startOfDay(for: $0.date) }).sorted(by: >)
-    }
     var body: some View {
-        NavigationStack {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: store.ledger.visibleHistory) { calendar.startOfDay(for: $0.date) }
+        let days = grouped.keys.sorted(by: >)
+        return NavigationStack {
             Group {
                 if days.isEmpty {
                     VStack(spacing: 16) {
@@ -448,8 +493,9 @@ struct HistoryView: View {
                 } else {
                     List {
                         ForEach(days, id: \.self) { day in
+                            let entries = grouped[day] ?? []
                             Section {
-                                ForEach(store.ledger.history(on: day)) { entry in
+                                ForEach(entries) { entry in
                                     Button {
                                         switch entry {
                                         case .feed(let feed): editing = feed
@@ -470,12 +516,18 @@ struct HistoryView: View {
                             } header: {
                                 Text(day.formatted(date: .complete, time: .omitted))
                             } footer: {
-                                let feeds = store.ledger.feeds(on: day)
+                                let feeds = entries.compactMap { entry -> Feed? in
+                                    if case .feed(let feed) = entry { return feed }
+                                    return nil
+                                }
                                 let count = feeds.count
                                 let volume = VolumeSummary(feeds: feeds)
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(L10n.format(count == 1 ? "%d feed · %d ml intake · Includes estimates · Grouped by start date" : "%d feeds · %d ml intake · Includes estimates · Grouped by start date", count, volume.totalML))
-                                    let pumped = PumpSummary(sessions: store.ledger.pumpSessions(on: day))
+                                    let pumped = PumpSummary(sessions: entries.compactMap { entry -> PumpSession? in
+                                        if case .pump(let session) = entry { return session }
+                                        return nil
+                                    })
                                     if pumped.sessionCount > 0 {
                                         Text(L10n.format(pumped.sessionCount == 1 ? "%d pumping session · %d ml pumped" : "%d pumping sessions · %d ml pumped",
                                                          pumped.sessionCount, pumped.totalML))
@@ -497,6 +549,9 @@ struct HistoryView: View {
 }
 
 struct FeedEditor: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .subheadline) private var shortcutWidth = 96
+    @AccessibilityFocusState private var validationFocused: Bool
     private enum SessionKind: Hashable {
         case bottle, breast, pump
     }
@@ -515,7 +570,10 @@ struct FeedEditor: View {
     @Environment(FeedingStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     let feed: Feed?
+    private let repeatedFeed: Feed?
     let finishingTimer: Bool
+    let onSaved: ((HistoryEntry) -> Void)?
+    let onTimerStarted: (() -> Void)?
     @State private var sessionKind: SessionKind
     @State private var milkKind: Kind
     @State private var breastTiming = BreastTiming.earlier
@@ -530,6 +588,7 @@ struct FeedEditor: View {
     @State private var expressedAmount: String
     @State private var formulaAmount: String
     @State private var notes: String
+    @State private var isTopUp: Bool
     @State private var pumpedAt: Date
     @State private var pumpedAmount = ""
     @State private var pumpingNotes = ""
@@ -539,12 +598,18 @@ struct FeedEditor: View {
     private var kind: Kind { sessionKind == .breast ? .breast : milkKind }
     private var startingTimer: Bool { sessionKind == .breast && breastTiming == .now && feed == nil && !finishingTimer }
 
-    init(feed: Feed? = nil, defaultKind: FeedKind = .expressed, finishingTimer: Bool = false) {
+    init(feed: Feed? = nil, repeating: Feed? = nil, defaultKind: FeedKind = .expressed, finishingTimer: Bool = false,
+         startWithPumping: Bool = false, onSaved: ((HistoryEntry) -> Void)? = nil,
+         onTimerStarted: (() -> Void)? = nil) {
         self.feed = feed
+        self.repeatedFeed = repeating
+        let feed = feed ?? repeating
         self.finishingTimer = finishingTimer
+        self.onSaved = onSaved
+        self.onTimerStarted = onTimerStarted
         let now = Date.now
         let initialKind = feed?.kind ?? defaultKind
-        _sessionKind = State(initialValue: initialKind == .breast ? .breast : .bottle)
+        _sessionKind = State(initialValue: startWithPumping ? .pump : initialKind == .breast ? .breast : .bottle)
         _milkKind = State(initialValue: feed?.isMixedBottle == true ? .mixed : initialKind == .formula ? .formula : .expressed)
         _started = State(initialValue: feed?.startedAt ?? (defaultKind == .breast ? now.addingTimeInterval(-15 * 60) : now))
         _ended = State(initialValue: feed?.endedAt ?? now)
@@ -555,6 +620,7 @@ struct FeedEditor: View {
         _expressedAmount = State(initialValue: feed?.isMixedBottle == true ? String(feed!.expressedML) : "")
         _formulaAmount = State(initialValue: feed?.isMixedBottle == true ? String(feed!.formulaML) : "")
         _notes = State(initialValue: feed?.notes ?? "")
+        _isTopUp = State(initialValue: feed?.isTopUp == true)
         _pumpedAt = State(initialValue: now)
     }
     var body: some View {
@@ -569,8 +635,10 @@ struct FeedEditor: View {
                             feedFields
                         }
                         if let validation {
-                            Section { Text(validation).foregroundStyle(.red) }
-                                .id("session-validation").accessibilityIdentifier("session-validation")
+                            Section {
+                                Label(validation, systemImage: "exclamationmark.circle").foregroundStyle(Palette.ink)
+                                    .accessibilityFocused($validationFocused)
+                            }.id("session-validation").accessibilityIdentifier("session-validation")
                         }
                         if let feed, !finishingTimer {
                             Section {
@@ -612,6 +680,7 @@ struct FeedEditor: View {
                         focusedField = nil
                         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                         scrollProxy.scrollTo("session-validation", anchor: .center)
+                        validationFocused = true
                     }
                 }
             }
@@ -641,6 +710,11 @@ struct FeedEditor: View {
                     options: [(.earlier, "Earlier feed"), (.now, "Feed now")])
                     .accessibilityIdentifier("breastfeeding-time")
             }.listRowBackground(Color.clear).listRowInsets(EdgeInsets())
+        }
+        Section {
+            Toggle("Top-up", isOn: $isTopUp).accessibilityIdentifier("feed-top-up")
+        } footer: {
+            Text("Counts toward milk intake without restarting the time since last feed.")
         }
         if startingTimer {
             timerSection
@@ -698,9 +772,9 @@ struct FeedEditor: View {
             }
         } header: { Text("Bottle volume") } footer: {
             if kind == .mixed {
-                Text("Enter the expressed milk and formula in the amount Felix drank. This is saved as one bottle.")
+                Text("Enter the expressed milk and formula actually drunk. This is saved as one bottle.")
             } else {
-                Text("Enter how much Felix actually drank, rather than the amount prepared.")
+                Text("Enter how much your baby actually drank, rather than the amount prepared.")
             }
         }
     }
@@ -718,7 +792,10 @@ struct FeedEditor: View {
                 Text("Time a feed as it happens.").font(.subheadline).foregroundStyle(Palette.secondary)
                 if store.ledger.active == nil {
                     Button {
-                        if store.change({ try $0.start(side: .left, now: .now) }) { dismiss() }
+                        if store.change({ try $0.start(side: .left, now: .now, isTopUp: isTopUp) }) {
+                            onTimerStarted?()
+                            dismiss()
+                        }
                     } label: {
                         Text("Start timer").font(.headline).padding(.vertical, 14)
                             .frame(maxWidth: .infinity, minHeight: 54)
@@ -739,7 +816,7 @@ struct FeedEditor: View {
                                options: [Int], prefix: String, onSelect: @escaping (Date) -> Void = { _ in }) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Set start time").font(.subheadline).foregroundStyle(Palette.secondary)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: shortcutWidth), spacing: 8)], spacing: 8) {
                 ForEach(options, id: \.self) { minutesAgo in
                     // Keep the chosen shortcut highlighted as time passes; a manual
                     // start-time change stops matching the shortcut's exact timestamp.
@@ -753,7 +830,8 @@ struct FeedEditor: View {
                     } label: {
                         Text(minutesAgo == 0 ? L10n.text("Now") :
                             minutesAgo == 60 ? L10n.text("1 hour ago") : L10n.format("%d min ago", minutesAgo))
-                            .font(.subheadline.weight(.semibold))
+                            .font(.subheadline.weight(.semibold)).monospacedDigit()
+                            .padding(.horizontal, 8).padding(.vertical, 8)
                             .frame(maxWidth: .infinity, minHeight: 44)
                             .background(Palette.sage, in: RoundedRectangle(cornerRadius: 12))
                             .overlay {
@@ -761,7 +839,7 @@ struct FeedEditor: View {
                                     .strokeBorder(selected ? Palette.green : .clear, lineWidth: 2)
                             }
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(SoftPressStyle())
                     .accessibilityLabel(minutesAgo == 0 ? L10n.text("Set start time to now") :
                         L10n.format("Set start time to %d minutes ago", minutesAgo))
                     .accessibilityAddTraits(selected ? .isSelected : [])
@@ -771,7 +849,7 @@ struct FeedEditor: View {
         }.padding(.vertical, 4)
     }
     private var bottleVolumeShortcuts: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], spacing: 8) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: shortcutWidth), spacing: 8)], spacing: 8) {
             ForEach(store.ledger.bottleVolumePresets(), id: \.self) { millilitres in
                 let selected = Int(amount.trimmingCharacters(in: .whitespaces)) == millilitres
                 Button {
@@ -779,7 +857,8 @@ struct FeedEditor: View {
                     validation = nil
                 } label: {
                     Text(L10n.format("%d ml", millilitres))
-                        .font(.subheadline.weight(.semibold))
+                        .font(.subheadline.weight(.semibold)).monospacedDigit()
+                        .padding(.horizontal, 8).padding(.vertical, 8)
                         .frame(maxWidth: .infinity, minHeight: 44)
                         .background(Palette.sage, in: RoundedRectangle(cornerRadius: 12))
                         .overlay {
@@ -787,7 +866,7 @@ struct FeedEditor: View {
                                 .strokeBorder(selected ? Palette.green : .clear, lineWidth: 2)
                         }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(SoftPressStyle())
                 .accessibilityLabel(L10n.format("Set volume to %d ml", millilitres))
                 .accessibilityAddTraits(selected ? .isSelected : [])
                 .accessibilityIdentifier("bottle-volume-\(millilitres)")
@@ -795,12 +874,14 @@ struct FeedEditor: View {
         }.padding(.vertical, 4)
     }
     private func numericField(_ title: String, text: Binding<String>, placeholder: String, field: NumericField) -> some View {
-        HStack {
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout())
+        return layout {
             Text(L10n.text(title))
-            Spacer()
-            TextField(L10n.text(placeholder), text: text).keyboardType(.decimalPad).multilineTextAlignment(.trailing)
+            if !typeSize.isAccessibilitySize { Spacer() }
+            TextField(L10n.text(placeholder), text: text).keyboardType(.decimalPad).multilineTextAlignment(typeSize.isAccessibilitySize ? .leading : .trailing)
+                .monospacedDigit()
                 .focused($focusedField, equals: field)
-                .frame(minWidth: 65, maxWidth: 120).accessibilityLabel(L10n.text(title))
+                .frame(minWidth: 65, maxWidth: typeSize.isAccessibilitySize ? .infinity : 120, minHeight: 44).accessibilityLabel(L10n.text(title))
                 .accessibilityIdentifier("feed-\(field.rawValue)")
         }
         .id(field)
@@ -833,7 +914,10 @@ struct FeedEditor: View {
                 }
                 let entry = PumpSession(pumpedAt: pumpedAt, millilitres: millilitres, notes: pumpingNotes)
                 try entry.validate()
-                if store.change({ try $0.upsert(entry) }) { dismiss() }
+                if store.change({ try $0.upsert(entry) }) {
+                    onSaved?(.pump(entry))
+                    dismiss()
+                }
                 return
             }
             let trimmedEstimate = estimate.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -857,11 +941,12 @@ struct FeedEditor: View {
                 formulaML = nil
             }
             // Preserve exact seconds (including legacy side history) when only editing an amount or note.
-            let unchangedTime = feed.map { nursingMinutes == Self.formattedMinutes($0.duration) } ?? false
-            let totalSeconds = kind == .breast ? (unchangedTime ? feed!.duration : try minutes(nursingMinutes)) : 0
+            let timingSource = feed ?? repeatedFeed
+            let unchangedTime = timingSource.map { nursingMinutes == Self.formattedMinutes($0.duration) } ?? false
+            let totalSeconds = kind == .breast ? (unchangedTime ? timingSource!.duration : try minutes(nursingMinutes)) : 0
             // Keep historical pauses and exact timestamps when timing is untouched.
             // New or retimed breastfeeds need only a start and active duration.
-            let breastEnd = feed.flatMap { existing in
+            let breastEnd = timingSource.flatMap { existing in
                 existing.kind == .breast && unchangedTime && breastStarted == existing.startedAt ? existing.endedAt : nil
             } ?? breastStarted.addingTimeInterval(totalSeconds)
             if kind == .breast && breastEnd > .now {
@@ -870,10 +955,10 @@ struct FeedEditor: View {
             let entry = Feed(id: feed?.id ?? UUID(),
                 startedAt: kind == .breast ? breastStarted : started,
                 endedAt: kind == .breast ? breastEnd : feed == nil ? started : ended, kind: kind.feedKind,
-                leftSeconds: kind == .breast ? (unchangedTime ? feed!.leftSeconds : totalSeconds) : 0,
-                rightSeconds: kind == .breast && unchangedTime ? feed!.rightSeconds : 0,
+                leftSeconds: kind == .breast ? (unchangedTime ? timingSource!.leftSeconds : totalSeconds) : 0,
+                rightSeconds: kind == .breast && unchangedTime ? timingSource!.rightSeconds : 0,
                 millilitres: bottleML, formulaMillilitres: formulaML,
-                estimatedMillilitres: estimatedML, notes: notes)
+                estimatedMillilitres: estimatedML, notes: notes, isTopUp: isTopUp)
             try entry.validate()
             if store.change({ ledger in
                 if finishingTimer {
@@ -883,7 +968,10 @@ struct FeedEditor: View {
                     ledger.active = nil
                 }
                 try ledger.upsert(entry)
-            }) { dismiss() }
+            }) {
+                onSaved?(.feed(entry))
+                dismiss()
+            }
         } catch { validation = error.localizedDescription }
     }
 }
@@ -901,6 +989,7 @@ struct SettingsView: View {
     @Environment(FeedActivityController.self) private var activities
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("liveActivityEnabled") private var liveActivityEnabled = true
+    @AppStorage("babyName") private var babyName = ""
     @State private var exportFile: ExportFile?
     @State private var exportType = UTType.json
     @State private var exporting = false
@@ -917,7 +1006,7 @@ struct SettingsView: View {
                     HStack(spacing: 16) {
                         BabyIllustration(pose: .hello, width: 80, animated: false)
                         VStack(alignment: .leading, spacing: 5) {
-                            Text("Made for Felix").font(.title2.bold())
+                            Text(babyName.isEmpty ? L10n.text("Made for your baby") : L10n.format("Made for %@", babyName)).font(.title2.bold())
                             Text("Every little feed, together.").font(.subheadline).foregroundStyle(Palette.secondary)
                         }
                     }.padding(.vertical, 8)
@@ -927,7 +1016,11 @@ struct SettingsView: View {
                     NavigationLink("Shared feeding history") { SharedHistorySettingsView() }
                 }
                 Section {
-                    LabeledContent("Baby", value: "Felix")
+                    NavigationLink {
+                        BabyNameSettingsView()
+                    } label: {
+                        LabeledContent("Baby", value: babyName.isEmpty ? L10n.text("Add a name") : babyName)
+                    }
                     Picker("Appearance", selection: $appearance) {
                         Text("System").tag("system")
                         Text("Light").tag("light")
@@ -977,14 +1070,8 @@ struct SettingsView: View {
                         }.navigationTitle("Recently deleted")
                     }
                 } footer: { Text("Deleted entries stay here until you restore them. They are included in backups and excluded from totals.") }
-                Section("Private by default") {
-                    Label("Saved on this iPhone", systemImage: "iphone")
-                    Label("Works without internet", systemImage: "wifi.slash")
-                    Label("No advertising or tracking", systemImage: "hand.raised")
-                    Text("Records are saved on this phone. If you enable shared history, encrypted feeds sync through your private family service. Paired phones hold the decryption key. iOS may include local records in your device backup.").font(.footnote).foregroundStyle(Palette.secondary)
-                }
                 Section {
-                    Text("Time since last feed is measured from the start of the most recent feed. Daily totals use this phone’s local calendar and group feeds by their start date.")
+                    Text("Time since last feed is measured from the start of the most recent regular feed. Top-ups do not restart it and still count toward daily totals. Daily totals use this phone’s local calendar and group feeds by their start date.")
                     Text("Felix Feeds records what happened. It does not set feeding targets or give medical advice.")
                 }.font(.footnote).foregroundStyle(Palette.secondary)
             }

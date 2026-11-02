@@ -196,7 +196,7 @@
 "This phone's records belong to a different shared history." = "Die Einträge dieses iPhones gehören zu einem anderen gemeinsamen Verlauf.";
 "This unfinished feed will not be added to history." = "Diese noch nicht abgeschlossene Mahlzeit wird nicht im Verlauf gespeichert.";
 "Time since feed started" = "Zeit seit Beginn der Mahlzeit";
-"Time since last feed is measured from the start of the most recent feed. Daily totals use this phone’s local calendar and group feeds by their start date." = "Die Zeit seit der letzten Mahlzeit wird ab deren Beginn gemessen. Tagessummen richten sich nach dem lokalen Kalender dieses iPhones. Mahlzeiten werden nach ihrem Beginn gruppiert.";
+"Time since last feed is measured from the start of the most recent regular feed. Top-ups do not restart it and still count toward daily totals. Daily totals use this phone’s local calendar and group feeds by their start date." = "Die Zeit seit der letzten Mahlzeit wird ab Beginn der letzten regulären Mahlzeit gemessen. Zusätzliche Mahlzeiten starten sie nicht neu und zählen weiterhin zur Tagessumme. Tagessummen richten sich nach dem lokalen Kalender dieses iPhones und dem Beginn der Mahlzeiten.";
 "Timer options" = "Timer-Optionen";
 "Type" = "Art";
 "Undo" = "Rückgängig";
@@ -360,3 +360,37 @@
 "feed" = "Mahlzeit";
 
 "Choose an earlier start or a shorter duration so the feed finishes in the past." = "Wähle einen früheren Beginn oder eine kürzere Dauer, damit die Mahlzeit in der Vergangenheit endet.";
+"Top-up" = "Zusätzliche Mahlzeit";
+"Counts toward milk intake without restarting the time since last feed." = "Zählt zur Milchmenge, ohne die Zeit seit der letzten Mahlzeit neu zu starten.";
+
+"Welcome to\nFelix Feeds" = "Willkommen bei\nFelix Feeds";
+"Keep track of bottles, breastfeeding and pumping, one session at a time." = "Fläschchen, Stillen und Abpumpen im Blick – eine Mahlzeit nach der anderen.";
+"What’s your\nbaby’s name?" = "Wie heißt\ndein Baby?";
+"A first name or nickname is perfect. You can change it in Settings." = "Ein Vorname oder Spitzname genügt. Du kannst ihn in den Einstellungen ändern.";
+"Baby’s name (optional)" = "Name des Babys (optional)";
+"Baby’s name" = "Name des Babys";
+"First name or nickname" = "Vorname oder Spitzname";
+"your baby" = "dein Baby";
+"A first session\nfor %@" = "Der erste Eintrag\nfür %@";
+"Choose what you’d like to record. You can add an earlier session, too." = "Wähle, was du festhalten möchtest. Du kannst auch einen früheren Eintrag hinzufügen.";
+"Formula or expressed milk" = "Pre- oder abgepumpte Milch";
+"Start a timer or add a feed" = "Timer starten oder Mahlzeit eintragen";
+"Record milk expressed" = "Abgepumpte Milch eintragen";
+"First pumping session saved" = "Erstes Abpumpen gespeichert";
+"First feed saved" = "Erste Mahlzeit gespeichert";
+"%@’s history has begun. You can edit this session at any time." = "Der Verlauf für %@ hat begonnen. Du kannst diesen Eintrag jederzeit bearbeiten.";
+"Get started" = "Los geht’s";
+"Explore first" = "Erst umsehen";
+"Continue" = "Weiter";
+"Skip for now" = "Vorerst überspringen";
+"I’ll start later" = "Ich fange später an";
+"Go to %@’s overview" = "Zur Übersicht für %@";
+"Made for your baby" = "Für dein Baby gemacht";
+"Made for %@" = "Für %@ gemacht";
+"Add a name" = "Namen hinzufügen";
+"Enter the expressed milk and formula actually drunk. This is saved as one bottle." = "Trage die tatsächlich getrunkene Menge an abgepumpter Milch und Pre-Milch ein. Sie wird als ein Fläschchen gespeichert.";
+"Enter how much your baby actually drank, rather than the amount prepared." = "Trage ein, wie viel dein Baby tatsächlich getrunken hat, nicht die zubereitete Menge.";
+"Add both sides together. Pumped milk is not counted as milk drunk; log a bottle when your baby drinks it." = "Addiere beide Seiten. Abgepumpte Milch zählt nicht als getrunkene Milch. Trage ein Fläschchen ein, wenn dein Baby sie trinkt.";
+
+"Repeat" = "Wiederholen";
+"Opens a new entry with these details for review." = "Öffnet einen neuen Eintrag mit diesen Angaben zur Überprüfung.";

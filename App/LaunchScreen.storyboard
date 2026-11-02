@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="23501" targetRuntime="iOS.CocoaTouch" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="launch-controller">
+    <device id="retina6_12" orientation="portrait" appearance="light"/>
+    <dependencies><plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23500"/><capability name="Named colors" minToolsVersion="9.0"/><capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/></dependencies>
+    <scenes><scene sceneID="launch-scene"><objects>
+        <viewController id="launch-controller" sceneMemberID="viewController"><view key="view" contentMode="scaleToFill" id="launch-view">
+            <rect key="frame" x="0.0" y="0.0" width="390" height="844"/>
+            <subviews>
+                <stackView opaque="NO" contentMode="scaleToFill" axis="vertical" alignment="center" spacing="24" translatesAutoresizingMaskIntoConstraints="NO" id="brand-stack">
+                    <rect key="frame" x="24" y="265" width="342" height="282"/>
+                    <subviews>
+                        <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" image="BabyLaunch" translatesAutoresizingMaskIntoConstraints="NO" id="baby-image"><rect key="frame" x="73" y="0.0" width="196" height="210"/><constraints><constraint firstAttribute="width" constant="196" id="baby-width"/><constraint firstAttribute="height" constant="210" id="baby-height"/></constraints></imageView>
+                        <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="Felix Feeds" textAlignment="center" numberOfLines="1" adjustsFontSizeToFit="YES" minimumScaleFactor="0.6" translatesAutoresizingMaskIntoConstraints="NO" id="brand-title"><rect key="frame" x="24" y="234" width="294" height="48"/><fontDescription key="fontDescription" type="boldSystem" pointSize="38"/><color key="textColor" name="LaunchInk"/></label>
+                    </subviews>
+                </stackView>
+            </subviews>
+            <color key="backgroundColor" name="LaunchBackground"/>
+            <constraints><constraint firstItem="brand-stack" firstAttribute="centerX" secondItem="launch-view" secondAttribute="centerX" id="brand-center-x"/><constraint firstItem="brand-stack" firstAttribute="centerY" secondItem="launch-view" secondAttribute="centerY" constant="-16" id="brand-center-y"/><constraint firstItem="brand-stack" firstAttribute="width" secondItem="launch-view" secondAttribute="width" constant="-48" id="brand-width"/></constraints>
+        </view></viewController>
+        <placeholder placeholderIdentifier="IBFirstResponder" id="first-responder" userLabel="First Responder" sceneMemberID="firstResponder"/>
+    </objects></scene></scenes>
+    <resources><image name="BabyLaunch" width="140" height="150"/><namedColor name="LaunchBackground"><color red="1" green="0.9725490196" blue="0.9294117647" alpha="1" colorSpace="custom" customColorSpace="sRGB"/></namedColor><namedColor name="LaunchInk"><color red="0.1568627451" green="0.2901960784" blue="0.2392156863" alpha="1" colorSpace="custom" customColorSpace="sRGB"/></namedColor></resources>
+</document>

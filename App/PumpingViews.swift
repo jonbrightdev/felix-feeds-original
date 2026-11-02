@@ -2,20 +2,29 @@ import SwiftUI
 import FeedingCore
 
 struct PumpingRow: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     let session: PumpSession
     var body: some View {
         HStack(spacing: 14) {
-            Image(systemName: "drop.halffull").foregroundStyle(Palette.green).frame(width: 40, height: 44)
-                .background(Palette.blue, in: RoundedRectangle(cornerRadius: 14))
+            if !typeSize.isAccessibilitySize {
+                Image(systemName: "drop.halffull").foregroundStyle(Palette.green).frame(width: 40, height: 44)
+                    .background(Palette.blue, in: RoundedRectangle(cornerRadius: 14))
+                    .accessibilityHidden(true)
+            }
             VStack(alignment: .leading, spacing: 5) {
                 Text("Pumping").font(.headline)
+                if typeSize.isAccessibilitySize { timestamp }
                 Text(L10n.format("%d ml combined", session.millilitres)).font(.subheadline).foregroundStyle(Palette.secondary)
                 if !session.notes.isEmpty { Text(session.notes).font(.caption).foregroundStyle(Palette.secondary).lineLimit(2) }
             }
             Spacer(minLength: 8)
-            Text(session.pumpedAt, format: .dateTime.hour().minute()).font(.subheadline).foregroundStyle(Palette.secondary)
-            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+            if !typeSize.isAccessibilitySize { timestamp.fixedSize() }
+            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary).accessibilityHidden(true)
         }.padding(.vertical, 16).contentShape(Rectangle()).accessibilityElement(children: .combine)
+    }
+    private var timestamp: some View {
+        Text(session.pumpedAt, format: .dateTime.hour().minute())
+            .font(.subheadline).monospacedDigit().foregroundStyle(Palette.secondary)
     }
 }
 
@@ -27,37 +36,52 @@ struct PumpingEditor: View {
     @State private var amount: String
     @State private var notes: String
     @State private var validation: String?
-    init(session: PumpSession? = nil) {
+    @AccessibilityFocusState private var validationFocused: Bool
+    init(session: PumpSession? = nil, repeating: PumpSession? = nil) {
         self.session = session
+        let session = session ?? repeating
         _pumpedAt = State(initialValue: session?.pumpedAt ?? .now)
         _amount = State(initialValue: session.map { String($0.millilitres) } ?? "")
         _notes = State(initialValue: session?.notes ?? "")
     }
     var body: some View {
         NavigationStack {
-            Form {
-                PumpingFields(pumpedAt: $pumpedAt, amount: $amount, notes: $notes) { validation = nil }
-                if let validation { Section { Text(validation).foregroundStyle(.red) } }
-                if let session {
-                    Section {
-                        Button("Delete pumping session", role: .destructive) {
-                            if store.change({ $0.setPumpSessionDeleted(session.id, at: .now) }) { dismiss() }
-                        }
-                    } footer: { Text("Deleted pumping sessions can be restored in Settings.") }
+            ScrollViewReader { scrollProxy in
+                Form {
+                    PumpingFields(pumpedAt: $pumpedAt, amount: $amount, notes: $notes) { validation = nil }
+                    if let validation {
+                        Section {
+                            Label(validation, systemImage: "exclamationmark.circle").foregroundStyle(Palette.ink).accessibilityFocused($validationFocused)
+                        }.id("pumping-validation")
+                    }
+                    if let session {
+                        Section {
+                            Button("Delete pumping session", role: .destructive) {
+                                if store.change({ $0.setPumpSessionDeleted(session.id, at: .now) }) { dismiss() }
+                            }
+                        } footer: { Text("Deleted pumping sessions can be restored in Settings.") }
+                    }
+                }
+                .felixFormStyle()
+                .navigationTitle(L10n.text(session == nil ? "Log pumping" : "Edit pumping"))
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                    ToolbarItem(placement: .confirmationAction) { Button("Save", action: save).bold().accessibilityIdentifier("save-pumping") }
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Spacer()
+                        Button("Done") { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
+                    }
+                }
+                .interactiveDismissDisabled()
+                .onChange(of: validation) {
+                    if validation != nil {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                        scrollProxy.scrollTo("pumping-validation", anchor: .center)
+                        validationFocused = true
+                    }
                 }
             }
-            .felixFormStyle()
-            .navigationTitle(L10n.text(session == nil ? "Log pumping" : "Edit pumping"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button("Save", action: save).bold().accessibilityIdentifier("save-pumping") }
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
-                }
-            }
-            .interactiveDismissDisabled()
         }
     }
     private func save() {
@@ -74,6 +98,8 @@ struct PumpingEditor: View {
 }
 
 struct PumpingFields: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .subheadline) private var shortcutWidth = 96
     @Binding var pumpedAt: Date
     @Binding var amount: String
     @Binding var notes: String
@@ -86,15 +112,17 @@ struct PumpingFields: View {
                 .accessibilityIdentifier("pumped-at")
         }
         Section {
-            HStack {
+            let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout())
+            layout {
                 Text("Combined output (ml)")
-                Spacer()
-                TextField(L10n.text("e.g. 120"), text: $amount).keyboardType(.numberPad).multilineTextAlignment(.trailing)
-                    .frame(minWidth: 65, maxWidth: 120).accessibilityLabel(L10n.text("Combined output (ml)"))
+                if !typeSize.isAccessibilitySize { Spacer() }
+                TextField(L10n.text("e.g. 120"), text: $amount).keyboardType(.numberPad).multilineTextAlignment(typeSize.isAccessibilitySize ? .leading : .trailing)
+                    .monospacedDigit()
+                    .frame(minWidth: 65, maxWidth: typeSize.isAccessibilitySize ? .infinity : 120, minHeight: 44).accessibilityLabel(L10n.text("Combined output (ml)"))
                     .accessibilityIdentifier("pumped-amount")
             }
         } header: { Text("Output") } footer: {
-            Text("Add both sides together. Pumped milk is not counted as milk drunk; log a bottle when Felix drinks it.")
+            Text("Add both sides together. Pumped milk is not counted as milk drunk; log a bottle when your baby drinks it.")
         }
         Section("Notes") {
             TextField("Anything to remember?", text: $notes, axis: .vertical).lineLimit(3...7)
@@ -104,7 +132,7 @@ struct PumpingFields: View {
     private var timeShortcuts: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Set time").font(.subheadline).foregroundStyle(Palette.secondary)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: shortcutWidth), spacing: 8)], spacing: 8) {
                 ForEach([0, 5, 15, 30, 60], id: \.self) { minutesAgo in
                     Button {
                         pumpedAt = Date.now.addingTimeInterval(-Double(minutesAgo) * 60)
@@ -112,11 +140,12 @@ struct PumpingFields: View {
                     } label: {
                         Text(minutesAgo == 0 ? L10n.text("Now") :
                             minutesAgo == 60 ? L10n.text("1 hour ago") : L10n.format("%d min ago", minutesAgo))
-                            .font(.subheadline.weight(.semibold))
+                            .font(.subheadline.weight(.semibold)).monospacedDigit()
+                            .padding(.horizontal, 8).padding(.vertical, 8)
                             .frame(maxWidth: .infinity, minHeight: 44)
                             .background(Palette.sage, in: RoundedRectangle(cornerRadius: 12))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(SoftPressStyle())
                     .accessibilityLabel(minutesAgo == 0 ? L10n.text("Set pumping time to now") :
                         L10n.format("Set pumping time to %d minutes ago", minutesAgo))
                     .accessibilityIdentifier("pumping-time-\(minutesAgo)")

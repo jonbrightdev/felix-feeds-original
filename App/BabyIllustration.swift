@@ -11,18 +11,17 @@ struct BabyIllustration: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var blinking = false
     @State private var waving = false
-    private var motionEnabled: Bool { animated && !reduceMotion && scenePhase == .active }
+    private var motionEnabled: Bool { animated && pose != .resting && !reduceMotion && scenePhase == .active }
 
     var body: some View {
         ZStack {
             // Feet and a rounded, solid-colour romper.
             Ellipse().fill(Palette.skin).frame(width: 23, height: 18).offset(x: -19, y: 57)
             Ellipse().fill(Palette.skin).frame(width: 23, height: 18).offset(x: 19, y: 57)
-            RoundedRectangle(cornerRadius: 28).fill(pose == .resting ? Color(hex: 0xA9C2A0) : Palette.romper)
-                .frame(width: 71, height: 61).offset(y: 34)
-            // Arms pivot from the shoulders. A single wave accompanies entering a state.
             arm(left: true)
             arm(left: false)
+            RoundedRectangle(cornerRadius: 28).fill(pose == .resting ? Color(hex: 0xA9C2A0) : Palette.romper)
+                .frame(width: 71, height: 61).offset(y: 34)
             Circle().fill(Palette.skin).frame(width: 16).offset(x: -43, y: -12)
             Circle().fill(Palette.skin).frame(width: 16).offset(x: 43, y: -12)
             RoundedRectangle(cornerRadius: 39).fill(Palette.skin).frame(width: 84, height: 78).offset(y: -17)
@@ -49,7 +48,7 @@ struct BabyIllustration: View {
         .accessibilityHidden(true)
         .allowsHitTesting(false)
         .animation(reduceMotion ? nil : .spring(response: 0.4, dampingFraction: 1), value: pose)
-        .task(id: motionEnabled) {
+        .task(id: motionEnabled ? pose : nil) {
             blinking = false
             waving = false
             guard motionEnabled else { return }
@@ -80,8 +79,8 @@ struct BabyIllustration: View {
 
     private func arm(left: Bool) -> some View {
         Capsule().fill(Palette.skin).frame(width: 17, height: 36)
-            .rotationEffect(.degrees(left ? -34 : (waving ? -105 : 34)), anchor: .top)
-            .offset(x: left ? -35 : 35, y: 27)
+            .rotationEffect(.degrees(left ? 34 : (waving ? -105 : -34)), anchor: .top)
+            .offset(x: left ? -27 : 27, y: 27)
     }
 
     private var bottle: some View {

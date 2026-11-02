@@ -27,6 +27,7 @@ struct FeedingLiveActivity: Widget {
                         .font(.system(.largeTitle, design: .rounded, weight: .semibold))
                         .monospacedDigit().minimumScaleFactor(0.6).lineLimit(1)
                         .accessibilityLabel(L10n.text("Time since feed started", locale: displayLocale(state)))
+                        .accessibilityValue(Text(state.startedAt, style: .timer))
                     Spacer(minLength: 8)
                     Text(state.detail).font(.subheadline)
                         .foregroundStyle(.secondary).multilineTextAlignment(.trailing).lineLimit(2)
@@ -54,6 +55,7 @@ struct FeedingLiveActivity: Widget {
                         .font(.title3.monospacedDigit()).minimumScaleFactor(0.6).lineLimit(1)
                         .frame(width: 96, alignment: .trailing)
                         .accessibilityLabel(L10n.text("Time since feed started", locale: displayLocale(state)))
+                        .accessibilityValue(Text(state.startedAt, style: .timer))
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
@@ -78,6 +80,7 @@ struct FeedingLiveActivity: Widget {
                     .lineLimit(1).minimumScaleFactor(0.75)
                     .frame(width: 44, alignment: .trailing)
                     .accessibilityLabel(L10n.text("Time since feed started", locale: displayLocale(state)))
+                    .accessibilityValue(Text(state.startedAt, style: .timer))
                 } else { Text("—").font(.caption2) }
             } minimal: {
                 Image(systemName: "heart.fill").foregroundStyle(.mint)

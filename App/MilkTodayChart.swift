@@ -12,7 +12,7 @@ struct MilkTodayChart: View {
 
     private var todayLabel: String { L10n.text("Today") }
     private var yesterdayLabel: String { L10n.text("Yesterday") }
-    private var yesterdayColor: Color { Palette.secondary.opacity(0.55) }
+    private var yesterdayColor: Color { Palette.secondary }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {

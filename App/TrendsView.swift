@@ -39,10 +39,8 @@ struct TrendsView: View {
                             .font(.subheadline).foregroundStyle(Palette.secondary)
                     }
                 }
-                Picker("Time range", selection: $dayCount) {
-                    Text("7 days").tag(7)
-                    Text("14 days").tag(14)
-                }.pickerStyle(.segmented)
+                EditorChoicePicker(title: "Time range", selection: $dayCount,
+                                   options: [(7, "7 days"), (14, "14 days")])
 
                 if !days.contains(where: \.hasRecords) {
                     VStack(spacing: 10) {
@@ -57,7 +55,6 @@ struct TrendsView: View {
                     daySelector(chosen, days: days)
                     bottleChart(days, selected: chosen, end: end)
                     breastChart(days, selected: chosen, end: end)
-                    rhythmChart(chosen, now: now)
                     dailyTotals(days)
                 }
                 Text("Completed feeds only, grouped by local start date. Today is still in progress. Days without entries mean nothing was logged.")
@@ -186,62 +183,6 @@ struct TrendsView: View {
             .accessibilityHidden(true)
     }
 
-    private func rhythmChart(_ day: FeedingDay, now: Date) -> some View {
-        let entries = store.ledger.history(on: day.date).filter { entry in
-            if case .feed(let feed) = entry { return feed.endedAt <= now }
-            return false
-        }
-        let next = Calendar.current.date(byAdding: .day, value: 1, to: day.date)!
-        let labels = [FeedKind.breast.title, FeedKind.expressed.title, FeedKind.formula.title, L10n.text("Mixed bottle")]
-        return VStack(alignment: .leading, spacing: 14) {
-            Text("The day's rhythm").font(.title3.bold())
-            Text(day.date, format: .dateTime.weekday(.abbreviated).day().month(.abbreviated))
-                .font(.caption).foregroundStyle(Palette.secondary)
-            Text("Each symbol marks when a feed started.").font(.subheadline).foregroundStyle(Palette.secondary)
-            if entries.isEmpty {
-                Text("Nothing logged on this day.").font(.subheadline).padding(.vertical, 20)
-            } else {
-                Chart(entries) { entry in
-                    PointMark(x: .value(L10n.text("Time"), entry.date),
-                              y: .value(L10n.text("Type"), category(entry)))
-                        .foregroundStyle(by: .value(L10n.text("Type"), category(entry)))
-                        .symbol(by: .value(L10n.text("Type"), category(entry)))
-                        .symbolSize(65)
-                        .accessibilityLabel(category(entry))
-                        .accessibilityValue(Text(entry.date, format: .dateTime.hour().minute()))
-                }
-                .chartXScale(domain: day.date...next)
-                .chartYScale(domain: labels)
-                .chartForegroundStyleScale(domain: labels, range: [breastColors[0], bottleColors[0], bottleColors[1], bottleColors[2]])
-                .chartSymbolScale(domain: labels, range: [.circle, .square, .triangle, .diamond])
-                .chartXAxis {
-                    AxisMarks(values: .stride(by: .hour, count: 6)) { _ in
-                        AxisGridLine()
-                        AxisValueLabel(format: .dateTime.hour(.twoDigits(amPM: .omitted)))
-                    }
-                }
-                .chartYAxis {
-                    AxisMarks(position: .leading) { value in
-                        AxisValueLabel { Text(value.as(String.self) ?? "").font(.caption2) }
-                        AxisGridLine()
-                    }
-                }
-                .chartLegend(.hidden)
-                .frame(height: typeSize.isAccessibilitySize ? 260 : 180)
-                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                .accessibilityLabel("Feed timeline")
-            }
-            Text("Local time").font(.caption).foregroundStyle(Palette.secondary)
-        }.chartCard()
-    }
-
-    private func category(_ entry: HistoryEntry) -> String {
-        switch entry {
-        case .feed(let feed): feed.title
-        case .pump: L10n.text("Pumping")
-        }
-    }
-
     private func dailyTotals(_ days: [FeedingDay]) -> some View {
         DisclosureGroup {
             VStack(spacing: 0) {
@@ -267,7 +208,7 @@ struct TrendsView: View {
 
     private func chartHeading(_ title: LocalizedStringKey, value: String, icon: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(title, systemImage: icon).font(.headline)
+            Label(title, systemImage: icon).font(.headline).accessibilityAddTraits(.isHeader)
             Text(value).font(.system(.largeTitle, design: .rounded, weight: .bold)).monospacedDigit()
         }
     }
