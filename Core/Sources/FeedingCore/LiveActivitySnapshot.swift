@@ -23,9 +23,7 @@ public struct LiveActivitySnapshot: Codable, Equatable, Sendable {
 
     public init(ledger: Ledger) {
         version = 1
-        let latest = ledger.feeds.filter { $0.deletedAt == nil }.sorted {
-            $0.startedAt == $1.startedAt ? $0.id.uuidString > $1.id.uuidString : $0.startedAt > $1.startedAt
-        }.first
+        let latest = ledger.latestTimerFeed
         feed = latest.map { SavedFeed(id: $0.id, startedAt: $0.startedAt, kind: $0.kind,
             millilitres: $0.kind == .breast ? nil : $0.millilitres, isMixedBottle: $0.isMixedBottle) }
     }

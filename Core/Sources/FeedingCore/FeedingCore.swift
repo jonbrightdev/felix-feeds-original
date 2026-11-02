@@ -37,6 +37,8 @@ public struct Feed: Codable, Identifiable, Equatable, Sendable {
     // Mixed bottles retain the existing expressed kind and total volume so older
     // clients can still read the record. This optional field records its formula portion.
     public var formulaMillilitres: Int?
+    // Optional so records saved before top-ups remain compatible.
+    public var isTopUp: Bool?
     public var estimatedMillilitres: Int?
     public var notes: String
     public var deletedAt: Date?
@@ -45,11 +47,12 @@ public struct Feed: Codable, Identifiable, Equatable, Sendable {
     public init(id: UUID = UUID(), startedAt: Date, endedAt: Date, kind: FeedKind,
                 leftSeconds: TimeInterval = 0, rightSeconds: TimeInterval = 0,
                 millilitres: Int? = nil, formulaMillilitres: Int? = nil, estimatedMillilitres: Int? = nil, notes: String = "", deletedAt: Date? = nil,
-                revision: FeedRevision? = nil) {
+                revision: FeedRevision? = nil, isTopUp: Bool = false) {
         self.id = id; self.startedAt = startedAt; self.endedAt = endedAt
         self.kind = kind; self.leftSeconds = leftSeconds; self.rightSeconds = rightSeconds
         self.millilitres = millilitres; self.estimatedMillilitres = estimatedMillilitres; self.notes = notes; self.deletedAt = deletedAt
         self.formulaMillilitres = formulaMillilitres
+        self.isTopUp = isTopUp ? true : nil
         self.revision = revision
     }
     public var duration: TimeInterval { leftSeconds + rightSeconds }
@@ -99,8 +102,10 @@ public struct ActiveFeed: Codable, Equatable, Sendable {
     public var leftSeconds: TimeInterval = 0
     public var rightSeconds: TimeInterval = 0
     public var runningSince: Date?
+    public var isTopUp: Bool?
 
-    public init(side: Side, now: Date) {
+    public init(side: Side, now: Date, isTopUp: Bool = false) {
+        self.isTopUp = isTopUp ? true : nil
         self.side = side; startedAt = now; runningSince = now
     }
     public func seconds(for side: Side, at now: Date) -> TimeInterval {
@@ -123,7 +128,7 @@ public struct ActiveFeed: Codable, Equatable, Sendable {
     }
     public func completed(at now: Date) -> Feed {
         Feed(id: id, startedAt: startedAt, endedAt: now, kind: .breast,
-             leftSeconds: seconds(for: .left, at: now), rightSeconds: seconds(for: .right, at: now))
+             leftSeconds: seconds(for: .left, at: now), rightSeconds: seconds(for: .right, at: now), isTopUp: isTopUp == true)
     }
 }
 
@@ -179,9 +184,11 @@ public struct Ledger: Codable, Equatable, Sendable {
             $0.startedAt == $1.startedAt ? $0.id.uuidString > $1.id.uuidString : $0.startedAt > $1.startedAt
         }
     }
+    /// Top-ups stay in history and intake totals but never restart the interval.
+    public var latestTimerFeed: Feed? { visibleFeeds.first { $0.isTopUp != true } }
     public var latestFeedGlance: FeedGlance? {
-        let last = visibleFeeds.first
-        if let active, last.map({ active.startedAt >= $0.startedAt }) ?? true {
+        let last = latestTimerFeed
+        if let active, active.isTopUp != true, last.map({ active.startedAt >= $0.startedAt }) ?? true {
             return FeedGlance(id: active.id, startedAt: active.startedAt, kind: .breast,
                               millilitres: nil, isFeeding: true, isPaused: active.runningSince == nil,
                               side: active.side)
@@ -219,9 +226,9 @@ public struct Ledger: Codable, Equatable, Sendable {
         if let index = feeds.firstIndex(where: { $0.id == feed.id }) { feeds[index] = feed }
         else { feeds.append(feed) }
     }
-    public mutating func start(side: Side, now: Date) throws {
+    public mutating func start(side: Side, now: Date, isTopUp: Bool = false) throws {
         guard active == nil else { throw FeedingError.invalid("Finish the current feed first.") }
-        active = ActiveFeed(side: side, now: now)
+        active = ActiveFeed(side: side, now: now, isTopUp: isTopUp)
     }
     public mutating func finish(now: Date) throws {
         guard let active else { return }
@@ -268,14 +275,14 @@ public struct Ledger: Codable, Equatable, Sendable {
             case .feed(let feed):
                 cells = [iso.string(from: feed.startedAt), iso.string(from: feed.endedAt), (feed.isMixedBottle ? "Mixed bottle" : feed.kind == .breast ? "Breast" : feed.kind == .expressed ? "Expressed milk" : "Formula"),
                          String(Int(feed.leftSeconds)), String(Int(feed.rightSeconds)), feed.millilitres.map(String.init) ?? "", feed.notes, feed.estimatedMillilitres.map(String.init) ?? "",
-                         feed.kind == .breast ? "" : String(feed.expressedML), feed.kind == .breast ? "" : String(feed.formulaML)]
+                         feed.kind == .breast ? "" : String(feed.expressedML), feed.kind == .breast ? "" : String(feed.formulaML), feed.isTopUp == true ? "true" : "false"]
             case .pump(let session):
                 // Pumped output shares the millilitres column; the type keeps it apart from bottle intake.
-                cells = [iso.string(from: session.pumpedAt), "", "Pumping", "", "", String(session.millilitres), session.notes, "", "", ""]
+                cells = [iso.string(from: session.pumpedAt), "", "Pumping", "", "", String(session.millilitres), session.notes, "", "", "", ""]
             }
             return cells.map(quote).joined(separator: ",")
         }
-        return (["start_utc,end_utc,type,left_seconds,right_seconds,millilitres,notes,estimated_millilitres,expressed_millilitres,formula_millilitres"] + rows).joined(separator: "\r\n")
+        return (["start_utc,end_utc,type,left_seconds,right_seconds,millilitres,notes,estimated_millilitres,expressed_millilitres,formula_millilitres,is_top_up"] + rows).joined(separator: "\r\n")
     }
 }
 

@@ -126,9 +126,9 @@ final class MixedBottleTests: XCTestCase {
         var ledger = Ledger(); ledger.feeds = [mixed()]
         let rows = ledger.csv().components(separatedBy: "\r\n")
         XCTAssertEqual(rows.count, 2)
-        XCTAssertTrue(rows[0].hasSuffix(",expressed_millilitres,formula_millilitres"))
+        XCTAssertTrue(rows[0].hasSuffix(",expressed_millilitres,formula_millilitres,is_top_up"))
         XCTAssertTrue(rows[1].contains("\"Mixed bottle\",\"0\",\"0\",\"100\""))
-        XCTAssertTrue(rows[1].hasSuffix("\"60\",\"40\""))
+        XCTAssertTrue(rows[1].hasSuffix("\"60\",\"40\",\"false\""))
         let de = Locale(identifier: "de_DE")
         XCTAssertEqual(L10n.text("Mixed bottle", locale: de), "Gemischtes Fläschchen")
         XCTAssertEqual(L10n.format("%d ml expressed + %d ml formula", 60, 40, locale: de),
